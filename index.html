@@ -103,6 +103,11 @@
   .tombol:disabled { background: #6b6688; color: #2a2748; cursor: wait; }
   .tombol.kedua { background: #2a2c5e; color: var(--krem); font-size: 15px; padding: 10px 20px; }
   .tombol.kedua:hover { background: #3a3d7a; }
+  .kecil { margin: 10px 0 0; font-size: 12px; letter-spacing: .1em; color: var(--lila); font-weight: 400; }
+  .kartu.peta { max-width: 700px; padding: 16px 18px 16px; }
+  .kartu.peta h2 { font-size: clamp(20px, 3.6vw, 30px); }
+  #kanvas-peta { display: block; margin: 12px auto 0; width: min(100%, 68vh); height: auto; aspect-ratio: 1; border: 3px solid var(--lila); image-rendering: pixelated; }
+  .panel.sorot { border-color: var(--jingga); }
   #galat { z-index: 10; background: #14123a; }
   #galat .kartu { border-color: var(--merah); }
   #galat h2 { color: var(--merah); text-shadow: 3px 3px 0 #000; font-size: clamp(20px, 4vw, 30px); }
@@ -119,7 +124,7 @@
   </div>
   <div class="tumpuk kanan">
     <div class="panel"><span class="label">Arah</span><span class="nilai" id="h-arah">U 000&deg;</span></div>
-    <div class="panel"><span class="label">Landasan</span><span class="nilai"><span id="h-panah">&#9650;</span> <span id="h-jarak">0</span><small> m</small></span></div>
+    <div class="panel" id="panel-pangkalan"><span class="label">Pangkalan</span><span class="nilai"><span id="h-panah">&#9650;</span> <span id="h-jarak">0</span><small> m</small></span></div>
     <div class="panel"><span class="label">Kamera</span><span class="nilai" id="h-kamera">Ekor</span></div>
   </div>
   <div id="petunjuk" hidden></div>
@@ -132,13 +137,14 @@
   <div class="kartu">
     <h1>Skuadron Senja</h1>
     <p class="sub">Mode Terbang Bebas</p>
-    <p class="misi">Lepas landas dari Pulau Landasan lalu jelajahi kepulauan saat senja. Kitari mercusuar, susuri tebing, lewati Gerbang Karang, dan kembali mendarat kapan pun Anda mau.</p>
+    <p class="misi">Lepas landas dari Pangkalan Tanjung Senja dan jelajahi Kepulauan Senja. Mercusuar tua di kiri, selat Teluk Kembar di depan, Gunung Bara di kanan. Arahnya terserah Anda.</p>
     <div class="kontrol" id="daftar-kontrol">
       <div><kbd>Mouse</kbd></div><span>Arahkan hidung pesawat. Makin jauh dari tengah layar, makin kuat belokannya</span>
       <div><kbd>W</kbd> <kbd>S</kbd></div><span>Tambah atau kurangi gas. Setelan bertahan saat tombol dilepas</span>
       <div><kbd>A</kbd> <kbd>D</kbd></div><span>Miringkan sayap secara manual</span>
       <div><kbd>C</kbd></div><span>Ganti kamera ekor dan kokpit</span>
       <div><kbd>Klik kanan</kbd></div><span>Tahan untuk melihat sekeliling. Pesawat menjaga arahnya</span>
+      <div><kbd>M</kbd></div><span>Buka peta kepulauan dan lokasi yang sudah ditemukan</span>
       <div><kbd>P</kbd></div><span>Jeda atau lanjut</span>
     </div>
     <button id="btn-mulai" class="tombol" type="button" disabled>Memuat&hellip;</button>
@@ -150,7 +156,7 @@
     <h2>Dijeda</h2>
     <div id="kontrol-jeda"></div>
     <button id="btn-lanjut" class="tombol" type="button">Lanjut</button>
-    <button id="btn-pangkalan" class="tombol kedua" type="button">Kembali ke Landasan</button>
+    <button id="btn-pangkalan" class="tombol kedua" type="button">Kembali ke Pangkalan</button>
   </div>
 </div>
 
@@ -159,7 +165,15 @@
     <h2 class="gagal">Pesawat Jatuh</h2>
     <p class="misi" id="jatuh-pesan"></p>
     <button id="btn-lagi" class="tombol" type="button">Terbang Lagi</button>
-    <button id="btn-pangkalan2" class="tombol kedua" type="button">Mulai dari Landasan</button>
+    <button id="btn-pangkalan2" class="tombol kedua" type="button">Mulai dari Pangkalan</button>
+  </div>
+</div>
+
+<div id="layar-peta" class="layar" hidden>
+  <div class="kartu peta">
+    <h2>Peta Kepulauan</h2>
+    <canvas id="kanvas-peta" width="640" height="640"></canvas>
+    <p class="kecil">Lokasi ditemukan: <span id="peta-jumlah">1/7</span> &middot; Tekan <kbd>M</kbd> untuk menutup</p>
   </div>
 </div>
 
@@ -182,10 +196,11 @@ const CFG = {
     'https://unpkg.com/three@0.160.0/build/three.module.js'
   ],
   rasioPikselMaks: 2,
+  rasioPikselMin: 1,                // resolusi diturunkan bertahap bila laju bingkai jatuh di bawah 50
   dtMaks: 0.05,
   langkahFisika: 1 / 120,           // langkah simulasi tetap agar rasa kontrol sama di frame rate berbeda
   lautY: -9,
-  kabut: { warna: 0xdba9b8, dekat: 260, jauh: 1700 },
+  kabut: { warna: 0xdba9b8, dekat: 900, jauh: 7000 },      // jarak pandang cukup jauh agar tiga penanda terlihat dari landasan
   matahari: { arah: [0.416, -0.909], elevasi: 1.5 },   // arah pada bidang XZ dan tinggi di atas horizon
   arahCahaya: [0.42, 0.38, -0.82],
   kerapatan: { jet: 24, suar: 12, dunia: 8 },           // teksel per satuan
@@ -210,7 +225,9 @@ const CFG = {
     sensitivitasLihat: 0.0042
   },
   jet: { skala: 0.5, tinggiRoda: 0.55 },
-  suar: { x: -44, z: -356, putaran: 0.7, panjangSorot: 50 },
+  suar: { x: -700, z: -1212, putaran: 0.7, panjangSorot: 170, tinggiBukit: 46 },
+  gunung: { x: 1420, z: -2360, tinggi: 480 },
+  dunia: { pusat: [450, -1400], radiusLuar: 3600 },      // di luar radius ini pemain dianggap berada di laut luar
   partikelMaks: 170
 };
 
@@ -324,7 +341,8 @@ const audio = {
   jatuh() { this.desis(0.5, 0.45); this.nada('sawtooth', 200, 40, 0.5, 0.3); },
   sentuh() { this.desis(0.12, 0.2); this.nada('triangle', 140, 70, 0.14, 0.2); },
   lepas() { this.nada('square', 520, 780, 0.12, 0.1); },
-  ganti() { this.nada('square', 700, 700, 0.05, 0.08); }
+  ganti() { this.nada('square', 700, 700, 0.05, 0.08); },
+  temuan() { [659, 784, 988].forEach((f, i) => this.nada('square', f, f, 0.12, 0.12, i * 0.1)); }
 };
 
 /* =====================================================================
@@ -365,7 +383,7 @@ function buatGame(THREE, renderer) {
     t.magFilter = THREE.NearestFilter;
     t.minFilter = o.mip === false ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter;
     t.generateMipmaps = o.mip !== false;
-    t.anisotropy = Math.min(8, anisoMaks);
+    t.anisotropy = Math.min(4, anisoMaks);
     if (o.ulang) t.wrapS = t.wrapT = THREE.RepeatWrapping;
     return t;
   }
@@ -704,7 +722,7 @@ function buatGame(THREE, renderer) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x1f1d4a);
   scene.fog = new THREE.Fog(CFG.kabut.warna, CFG.kabut.dekat, CFG.kabut.jauh);
-  const camera = new THREE.PerspectiveCamera(CFG.kamera.fov, 1, 0.5, 5600);
+  const camera = new THREE.PerspectiveCamera(CFG.kamera.fov, 1, 0.5, 17000);
 
   // Sisi yang menghadap matahari: jingga keemasan. Sisi bayangan: biru keunguan dari langit.
   scene.add(new THREE.HemisphereLight(0xa9a0ee, 0x3c3f80, 2.3));
@@ -806,7 +824,7 @@ function buatGame(THREE, renderer) {
     }
   }
   const langit = (function buatLangit() {
-    const Wd = 2048, Hd = 448, HOR = 330, RAD = 2400, PX = (2 * Math.PI * RAD) / Wd, DER = Wd / 360;
+    const Wd = 2048, Hd = 448, HOR = 330, RAD = 7600, PX = (2 * Math.PI * RAD) / Wd, DER = Wd / 360;
     const [c, g] = kanvas(Wd, Hd), img = g.createImageData(Wd, Hd), d = img.data;
     const stop = [[0, 0x1f1d4a], [84, 0x342e76], [155, 0x574394], [221, 0x8a5fa8], [273, 0xc67c9d], [306, 0xee9f7e], [332, 0xf4b88e]];
     const kabut = rgb(CFG.kabut.warna), dingin = rgb(0x6c5aa8), emas = [255, 190, 110];
@@ -866,13 +884,13 @@ function buatGame(THREE, renderer) {
     awan.renderOrder = -9;
     awan.frustumCulled = false;
     scene.add(awan);
-    return { kubah: m, awan, geserY: HOR * PX - tinggi / 2, geserAwan: 300 + 80 * PX };
+    return { kubah: m, awan, geserY: HOR * PX - tinggi / 2, geserAwan: (40 + 80) * PX };
   })();
 
   /* =====================================================================
      LAUT TANPA BATAS: bidang yang mengikuti kamera, gelombang piksel, kilau matahari
      ===================================================================== */
-  const UBIN_LAUT = 32, LEBAR_LAUT = UBIN_LAUT * 220;
+  const UBIN_LAUT = 32, LEBAR_LAUT = UBIN_LAUT * 640;
   const texLaut = (function () {
     const S = 256, [c, g] = kanvas(S, S), q = new Kuas(g, S, S, pengacak(5));
     const lipat = (x, y, w, h, col) => { for (const ox of [0, -S]) for (const oy of [0, -S]) q.k(x + ox, y + oy, w, h, col); };
@@ -901,7 +919,7 @@ function buatGame(THREE, renderer) {
   [texGlitter, texGlitter2].forEach((t, lapis) => {
     const p = [], u = [], idx = [], SEG = 14;
     for (let s = 0; s <= SEG; s++) {
-      const f = s / SEG, dj = 30 + f * f * 1500, lebar = 10 + f * 190;
+      const f = s / SEG, dj = 30 + f * f * 4600, lebar = 10 + f * 520;
       p.push(-lebar / 2, 0, -dj, lebar / 2, 0, -dj);
       u.push(0, dj / 46, 1, dj / 46);
       if (s < SEG) { const a = s * 2; idx.push(a, a + 1, a + 3, a, a + 3, a + 2); }
@@ -1030,121 +1048,367 @@ function buatGame(THREE, renderer) {
     buih(x, z, w * 1.7 + 3, d * 1.7 + 3, rot, i);
   }
 
-  /* ---------- Pulau Landasan: dataran dengan landasan pacu, bukit, hanggar, dan menara ---------- */
-  const LD = CFG.landasan, YL = Y0 + LD.tinggi, uvB = { skala: 0.6 };
-  daratan(0, Y0 + 0.3, -5, 68, 2.4, 216, { sisi: 'batuBasah', atas: 'batuKering' }, { atas: [0.95, 0.97], uv: uvB });
-  daratan(0, Y0 + 1 + (LD.tinggi - 1) / 2, -5, 54, LD.tinggi - 1, 198, { sisi: 'tebing', atas: 'rumput' }, { atas: [0.94, 0.97], uv: uvB });
-  daratan(-37, YL + 3, -22, 38, 18, 86, { sisi: 'tebing', atas: 'rumput' }, { rot: [0, 0.12, 0], atas: [0.8, 0.85], uv: uvB });
-  daratan(-43, YL + 16, -30, 20, 8, 40, { sisi: 'tebing', atas: 'rumput' }, { rot: [0, 0.3, 0], atas: [0.75, 0.8], uv: uvB });
+  /* =====================================================================
+     KEPULAUAN SENJA
+     Ukuran dunia diturunkan dari pesawat: laju jelajah 58 satuan/detik, bentang sayap 4,6,
+     radius belok sekitar 55-80. Penanda pertama berjarak 24-30 detik dari pangkalan.
+     ===================================================================== */
+  const D2R = Math.PI / 180, uvB = { skala: 0.6 }, uvR = { skala: 0.3 };
+  const tebing = { sisi: 'tebing', atas: 'rumput' }, basah = { sisi: 'batuBasah', atas: 'batuKering' }, gelap = { sisi: 'karang', atas: 'batuKering' };
+  const atapWarna = (dasar) => (q) => {
+    q.isi(dasar);
+    for (let y = 0; y < 24; y += 4) { q.k(0, y + 3, 52, 1, campur(dasar, 0x000000, 0.35)); for (let x = (y % 8 ? 2 : 0); x < 52; x += 4) q.k(x, y, 1, 3, campur(dasar, 0x000000, 0.18)).k(x + 1, y, 1, 1, campur(dasar, 0xffffff, 0.22)); }
+  };
+  AS.baru('atapBiru', 52, 24, atapWarna(0x3f6fae)).baru('atapMerah', 52, 24, atapWarna(0xc8463e)).baru('atapKuning', 52, 24, atapWarna(0xd9a84a));
+  AS.baru('merahJembatan', 32, 32, (q) => {
+    q.isi(0xcf3a30).panel(16, 16, 0x8a2420, 0xe8645a, 7, 7).bintik(0xb02c26, 16, 2, 1);
+    for (let x = 3; x < 32; x += 8) for (let y = 3; y < 32; y += 8) q.k(x, y, 1, 1, 0xf2a09a);
+  });
+  texSuar.needsUpdate = true;
+  AA.baru('perahu', 48, 16, (q) => { q.isi(0xe9e2d6).k(0, 0, 48, 3, 0x2f6fae).k(0, 11, 48, 5, 0xb5372f).bintik(0xcfc8bc, 12, 3, 1); });
+  AA.baru('bara', 16, 16, (q) => { q.isi(0xff7a2a).bintik(0xffd27a, 14, 2, 2).bintik(0xc8361e, 12, 2, 2); });
+  texAlam.needsUpdate = true;
+
+  // laut dangkal (toska), laguna (hijau terang), dan alur buih yang mengalir
+  const petak = (dasar, terang, redup, benih) => kanvasAlfa(64, 64, (set) => {
+    const r = pengacak(benih);
+    for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) set(x, y, dasar, 255);
+    for (let i = 0; i < 150; i++) { const x = r() * 64 | 0, y = r() * 64 | 0, w = 2 + (r() * 5 | 0), c = r() < 0.6 ? terang : redup; for (let k = 0; k < w; k++) set((x + k) % 64, y, c, 255); }
+  });
+  const kvDangkal = petak(0x3fc4b4, 0x6fe6d2, 0x2fa7a0, 41), kvLaguna = petak(0x4fe3a4, 0xa6f7cf, 0x35c98c, 42);
+  const BD = new Pembangun(atlasTunggal(kvDangkal), 1.6), BL = new Pembangun(atlasTunggal(kvLaguna), 1.6);
+  const dangkal = (x, z, w, d, rot = 0) => BD.kotak(x, Y0 + 0.05, z, w, 0.02, d, { atas: 'u' }, { rot: [0, rot, 0] });
+  const texAlur = tekstur(kanvasAlfa(32, 64, (set) => {
+    const r = pengacak(43);
+    for (let i = 0; i < 80; i++) { const x = r() * 32 | 0, y = r() * 64 | 0, p = 3 + (r() * 8 | 0), c = r() < 0.3 ? 0xcfe0ff : 0xffffff; for (let k = 0; k < p; k++) set(x, (y + k) % 64, c, 235); }
+  }), { ulang: true });
+  const AL = { p: [], u: [], i: [] };
+  function alur(pts, lebar) {                  // pita buih; teksturnya mengalir searah urutan titik
+    let jarak = 0;
+    for (let k = 0; k < pts.length - 1; k++) {
+      const [x0, z0] = pts[k], [x1, z1] = pts[k + 1], dx = x1 - x0, dz = z1 - z0, pj = Math.hypot(dx, dz) || 1;
+      const nx = -dz / pj * lebar / 2, nz = dx / pj * lebar / 2, b = AL.p.length / 3, y = Y0 + 0.14;
+      AL.p.push(x0 - nx, y, z0 - nz, x0 + nx, y, z0 + nz, x1 + nx, y, z1 + nz, x1 - nx, y, z1 - nz);
+      AL.u.push(0, jarak / 26, 1, jarak / 26, 1, (jarak + pj) / 26, 0, (jarak + pj) / 26);
+      AL.i.push(b, b + 1, b + 2, b, b + 2, b + 3);
+      jarak += pj;
+    }
+  }
+
+  /* ---------- Pangkalan Tanjung Senja: landasan di tepi laut, tanjung berbukit di belakang titik lepas landas ---------- */
+  const LD = CFG.landasan, YL = Y0 + LD.tinggi;
+  daratan(0, Y0 + 0.3, 12, 70, 2.4, 262, basah, { atas: [0.95, 0.97], uv: uvB });
+  daratan(0, Y0 + 1 + (LD.tinggi - 1) / 2, -5, 54, LD.tinggi - 1, 198, tebing, { atas: [0.94, 0.97], uv: uvB });
+  daratan(-50, Y0 + (LD.tinggi + 12) / 2, 118, 50, LD.tinggi + 12, 84, tebing, { rot: [0, 0.1, 0], atas: [0.8, 0.82], uv: uvB });
+  daratan(-52, YL + 18, 124, 26, 12, 44, tebing, { rot: [0, 0.4, 0], atas: [0.75, 0.75], uv: uvB });
   daratan(37, Y0 + 2.6, 34, 28, 6, 64, { sisi: 'tebing', atas: 'pasir' }, { rot: [0, -0.1, 0], atas: [0.85, 0.9], uv: uvB });
-  buih(0, -5, 76, 226, 0, 0);
+  buih(0, 12, 78, 272, 0, 0);
   buih(37, 34, 34, 70, -0.1, 1);
-  for (let i = 0; i < 7; i++) pohon(-37 + (rA() - 0.5) * 22, YL + 11.9, -22 + (rA() - 0.5) * 60, 1.6 + rA() * 0.8);
-  for (let i = 0; i < 3; i++) pohon(-43 + (rA() - 0.5) * 9, YL + 19.9, -30 + (rA() - 0.5) * 22, 1.5 + rA() * 0.6);
+  dangkal(4, 10, 190, 380, 0.05);
+  for (let i = 0; i < 6; i++) pohon(-50 + (rA() - 0.5) * 28, YL + 11.9, 118 + (rA() - 0.5) * 50, 1.6 + rA() * 0.8);
+  for (let i = 0; i < 3; i++) pohon(-52 + (rA() - 0.5) * 12, YL + 23.9, 124 + (rA() - 0.5) * 22, 1.5 + rA() * 0.6);
   for (let i = 0; i < 5; i++) palem(37 + (rA() - 0.5) * 14, Y0 + 5.5, 34 + (rA() - 0.5) * 44, 1.3 + rA() * 0.5);
   BA.kotak(LD.x, YL + 0.06, LD.z, LD.lebar, 0.12, LD.panjang, { atas: 'aspal' });                        // landasan pacu
   for (const s of [-1, 1]) BA.kotak(LD.x, YL + 0.08, LD.z + s * (LD.panjang / 2 - 3), LD.lebar, 0.16, 4, { atas: { n: 'ambang', pas: true } });
   for (let z = -LD.panjang / 2; z <= LD.panjang / 2; z += 16) for (const s of [-1, 1]) PA.kotak(LD.x + s * (LD.lebar / 2 + 1), YL + 0.3, LD.z + z, 0.36, 0.36, 0.36, 'lampuKapal');
-  // hanggar dan menara pengawas di sisi timur landasan
-  BB.kotak(18, YL + 2.4, 38, 9, 4.8, 13, { sisi: 'dinding', nx: { n: 'dindingDepan', pas: true } });
-  BB.kotak(18, YL + 5.7, 38, 9.8, 1.8, 14, { px: 'genteng', nx: 'genteng', pz: 'dinding', nz: 'dinding', atas: 'genteng' }, { atas: [0.06, 1] });
-  BB.kotak(17, YL + 4.5, 14, 3, 9, 3, { sisi: 'dinding' });
-  PB.kotak(17, YL + 9.8, 14, 3.6, 1.6, 3.6, { sisi: 'kaca' });
-  BB.kotak(17, YL + 10.9, 14, 4.2, 0.6, 4.2, { sisi: 'galeri', atas: 'atap', bawah: 'galeri' });
-  tambahPenabrak(18, YL + 3.3, 38, 9.8, 6.6, 14);
-  tambahPenabrak(17, YL + 5.6, 14, 4.2, 11.2, 4.2);
+  BB.kotak(19, YL + 2.4, 85, 9, 4.8, 13, { sisi: 'dinding', nx: { n: 'dindingDepan', pas: true } });      // hanggar
+  BB.kotak(19, YL + 5.7, 85, 9.8, 1.8, 14, { px: 'genteng', nx: 'genteng', pz: 'dinding', nz: 'dinding', atas: 'genteng' }, { atas: [0.06, 1] });
+  BB.kotak(-19, YL + 4.5, 87, 3, 9, 3, { sisi: 'dinding' });                                              // menara pengawas
+  PB.kotak(-19, YL + 9.8, 87, 3.6, 1.6, 3.6, { sisi: 'kaca' });
+  BB.kotak(-19, YL + 10.9, 87, 4.2, 0.6, 4.2, { sisi: 'galeri', atas: 'atap', bawah: 'galeri' });
+  tambahPenabrak(19, YL + 3.3, 85, 9.8, 6.6, 14);
+  tambahPenabrak(-19, YL + 5.6, 87, 4.2, 11.2, 4.2);
+  // lampu suar pangkalan: kedip hijau-putih agar landasan mudah dikenali dari jauh
+  const lampuPangkalan = new THREE.Sprite(new THREE.SpriteMaterial({ map: texKilau, color: 0x8dffb0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+  lampuPangkalan.position.set(-19, YL + 12.4, 87);
+  scene.add(lampuPangkalan);
 
-  /* ---------- Pulau karang mercusuar ---------- */
-  const LX = CFG.suar.x, LZ = CFG.suar.z;
-  daratan(LX + 1.5, Y0 + 0.1, LZ + 0.5, 17, 1.8, 12, { sisi: 'batuBasah', atas: 'batuKering' }, { rot: [0, 0.15, 0], atas: [0.92, 0.92] });
-  daratan(LX - 2, Y0 + 0.1, LZ - 2, 12, 1.8, 11, { sisi: 'batuBasah', atas: 'batuKering' }, { rot: [0, -0.5, 0], atas: [0.9, 0.9] });
-  daratan(LX + 1.2, Y0 + 1.9, LZ + 0.3, 13, 2.0, 9, { sisi: 'tebing', atas: 'batuKering' }, { rot: [0, 0.1, 0], atas: [0.9, 0.9] });
-  daratan(LX + 1.4, Y0 + 3.05, LZ + 0.3, 11.5, 0.5, 7.6, { sisi: 'tebing', atas: 'rumput' }, { rot: [0, 0.1, 0] });
-  daratan(LX - 5.5, Y0 + 1.6, LZ + 3.2, 2.6, 2.4, 2.2, 'karang', { rot: [0, 0.7, 0], atas: [0.6, 0.6] });
-  daratan(LX + 8.6, Y0 + 1.3, LZ - 3.4, 2.2, 1.8, 2.4, 'karang', { rot: [0, 0.3, 0], atas: [0.6, 0.6] });
-  BA.kotak(LX + 10.2, Y0 + 0.75, LZ + 2.4, 5, 0.25, 1.3, 'kayu');                                         // dermaga kecil
-  for (const dx of [8.4, 10.2, 12.2]) BA.kotak(LX + dx, Y0 + 0.2, LZ + 2.95, 0.25, 1.4, 0.25, 'batang');
-  buih(LX + 1.5, LZ + 0.5, 19.6, 14, 0.15, 0);
-  buih(LX - 2, LZ - 2, 14, 13, -0.5, 1);
-  palem(LX - 3.2, Y0 + 3.2, LZ + 1.6, 0.9);
-  palem(LX - 1.6, Y0 + 3.2, LZ - 2.0, 0.75);
-  tambahPenabrak(LX, Y0 + 9, LZ, 3.8, 18, 3.8);                                                           // menara
-  tambahPenabrak(LX + 4.9, Y0 + 5, LZ + 1, 4.1, 3.6, 3.3);                                                // rumah penjaga
-
-  /* ---------- Kepulauan ---------- */
-  pulau(-150, -300, 34, 16);
-  pulau(110, -230, 26, 12, { palem: true });
-  pulau(300, -470, 85, 52, { tebing: true });                                                             // Pulau Tebing
-  pulau(-420, -170, 110, 30);
-  pulau(380, 150, 70, 24, { palem: true });
-  pulau(-140, 420, 60, 18);
-  pulau(160, 520, 45, 14, { palem: true });
-  pulau(560, -820, 110, 40, { tebing: true });
-  pulau(-640, -720, 95, 36);
-  pulau(-40, -900, 130, 44, { tebing: true });
-  pulau(820, -200, 80, 26);
-  pulau(-860, 260, 90, 30);
-  pulau(700, 640, 75, 22, { palem: true });
-  pulau(-500, 760, 85, 28);
-  pulau(1500, -1500, 200, 60, { jauh: true });
-  pulau(-1700, -900, 220, 70, { jauh: true });
-  pulau(300, -2000, 260, 80, { jauh: true });
-  pulau(-1400, 1300, 200, 50, { jauh: true });
-  pulau(1800, 600, 180, 55, { jauh: true });
-  pulau(-200, 1900, 220, 60, { jauh: true });
-  // Gerbang Karang: dua tonggak dengan ambang di atasnya, dan Celah Sempit di sebelah baratnya
-  tonggak(-268, -560, 22, 66, 26, 0, 0);
-  tonggak(-226, -560, 22, 66, 26, 0, 1);
-  daratan(-247, Y0 + 62, -560, 62, 10, 22, { sisi: 'tebing', atas: 'rumput', bawah: 'tebing' }, { melayang: true, uv: { skala: 0.6 } });
-  tonggak(-340, -470, 9, 52, 44, 0.1, 0);
-  tonggak(-324.5, -468.5, 9, 52, 44, 0.1, 1);
-  // tonggak-tonggak di lepas pantai Pulau Tebing
-  tonggak(190, -400, 14, 38, 13, 0.3, 0);
-  tonggak(170, -452, 12, 46, 12, 1.1, 1);
-  tonggak(205, -508, 15, 34, 14, 0.6, 0);
-  tonggak(150, -350, 10, 28, 10, 0.2, 1);
-  // karang di kedua sisi alur pelayaran menuju mercusuar
-  const kapalPos = [LX + 150, LZ - 180], alurAkhir = [LX + 22, LZ + 6];
-  (function () {
-    const dx = alurAkhir[0] - kapalPos[0], dz = alurAkhir[1] - kapalPos[1], pj = Math.hypot(dx, dz), nx = dz / pj, nz = -dx / pj;
-    [0.22, 0.4, 0.58, 0.76, 0.93].forEach((t, i) => {
-      const cx = kapalPos[0] + dx * t, cz = kapalPos[1] + dz * t, l = 15 + rA() * 5;
-      karang(cx - nx * l, cz - nz * l, 0.9 + rA() * 0.5, i);
-      karang(cx + nx * l, cz + nz * l, 0.9 + rA() * 0.5, i + 1);
+  /* ---------- Pulau Suar Lama dan garis pantai yang menuntun pulang ke landasan ---------- */
+  const LX = CFG.suar.x, LZ = CFG.suar.z, HB = CFG.suar.tinggiBukit, SKS = 3, DYS = HB - 3.2 * SKS;
+  daratan(LX, Y0 + 1, LZ, 250, 4.6, 212, basah, { rot: [0, 0.3, 0], atas: [0.93, 0.93], uv: uvB });
+  daratan(LX + 6, Y0 + 14, LZ + 4, 200, 28, 166, tebing, { rot: [0, 0.3, 0], atas: [0.88, 0.86], uv: uvB });
+  daratan(LX - 4, Y0 + 28 + (HB - 28) / 2, LZ - 2, 122, HB - 28, 102, tebing, { rot: [0, 0.5, 0], atas: [0.85, 0.85], uv: uvB });
+  buih(LX, LZ, 270, 232, 0.3, 0);
+  dangkal(LX + 20, LZ + 30, 460, 400, 0.3);
+  for (let i = 0; i < 9; i++) { const a = rA() * 6.28; pohon(LX + 6 + Math.cos(a) * (56 + rA() * 18), Y0 + 27.8, LZ + 4 + Math.sin(a) * (46 + rA() * 12), 1.8 + rA()); }
+  tambahPenabrak(LX, Y0 + DYS + 9 * SKS, LZ, 3.9 * SKS, 18 * SKS, 3.9 * SKS);                             // menara suar
+  tambahPenabrak(LX + 4.9 * SKS, Y0 + DYS + 5 * SKS, LZ + 1 * SKS, 4.2 * SKS, 3.8 * SKS, 3.4 * SKS);      // rumah penjaga
+  tonggak(LX - 170, LZ + 60, 20, 44, 18, 0.4, 0);
+  tonggak(LX + 120, LZ - 150, 16, 34, 16, 1.0, 1);
+  // Gerbang Karang di lepas pantai barat pulau suar
+  const GKX = LX - 300, GKZ = LZ - 150;
+  tonggak(GKX - 21, GKZ, 22, 66, 26, 0, 0);
+  tonggak(GKX + 21, GKZ, 22, 66, 26, 0, 1);
+  daratan(GKX, Y0 + 62, GKZ, 62, 10, 22, { sisi: 'tebing', atas: 'rumput', bawah: 'tebing' }, { melayang: true, uv: uvB });
+  (function () {                                                                                          // rantai pulau pasir dari tanjung pangkalan ke pulau suar
+    const ax = -30, az = -112, dx = LX - ax, dz = LZ - az, pj = Math.hypot(dx, dz), ux = dx / pj, uz = dz / pj, rot = Math.atan2(ux, uz), kiri = [], kanan = [];
+    [[0.18, 190, 60, 9, true], [0.4, 230, 72, 24, false], [0.62, 200, 64, 10, true], [0.82, 180, 60, 15, false]].forEach(([t, p, l, h, palemKah], i) => {
+      const x = ax + dx * t + (i % 2 ? 26 : -22), z = az + dz * t;
+      daratan(x, Y0 + 0.5, z, l * 1.35, 2.6, p * 1.15, { sisi: 'batuBasah', atas: 'pasir' }, { rot: [0, rot, 0], atas: [0.9, 0.94], uv: uvB });
+      daratan(x, Y0 + h / 2 + 1, z, l, h, p * 0.8, h > 20 ? tebing : { sisi: 'batuBasah', atas: 'rumput' }, { rot: [0, rot, 0], atas: [0.8, 0.9], uv: uvB });
+      buih(x, z, l * 1.5, p * 1.25, rot, i);
+      for (let k = 0; k < 7; k++) { const f = (rA() - 0.5) * p * 0.6, g = (rA() - 0.5) * l * 0.5, px = x + ux * f - uz * g, pz = z + uz * f + ux * g; (palemKah ? palem : pohon)(px, Y0 + h + 0.9, pz, 1.5 + rA() * 0.8); }
     });
+    dangkal(ax + dx * 0.5, az + dz * 0.5, 230, pj * 1.02, rot);
+    for (let t = 0.03; t <= 0.98; t += 0.05) {                                                            // alur buih di kedua sisi menandai karang
+      const w = Math.sin(t * 19) * 14;
+      kiri.push([ax + dx * t - uz * (92 + w), az + dz * t + ux * (92 + w)]);
+      kanan.push([ax + dx * t + uz * (96 - w), az + dz * t - ux * (96 - w)]);
+    }
+    alur(kiri.reverse(), 7); alur(kanan.reverse(), 7);
+    for (let t = 0.1; t < 0.95; t += 0.22) karang(ax + dx * t + uz * 110, az + dz * t - ux * 110, 1.4 + rA(), t * 10 | 0);
   })();
-  scene.add(BA.bangun(matAlam), PA.bangun(matAlamPijar), BB.bangun(matSuar), PB.bangun(matSuarPijar));
-  const matBuih = BF.map((b) => {
-    const m = new THREE.MeshBasicMaterial({ map: texBuih, transparent: true, opacity: 0.8, depthWrite: false });
-    scene.add(b.bangun(m));
-    return m;
-  });
 
-  // kapal yang berlabuh di alur pelayaran
-  const kapal = new THREE.Group();
+  /* ---------- Teluk Kembar: dua pulau karang mengapit selat lebar; lorong alami menembus ke laguna ---------- */
+  const LOR = { lebar: 46, tinggi: 36 };
+  // gelang tebing: segmen-segmen melingkar; khusus[k] = 'buka' | 'rendah' | 'lorong'
+  function gelang(cx, cz, Rc, tebal, tinggi, N, khusus, fase) {
+    const pj = 2 * Rc * Math.tan(Math.PI / N) * 1.3, hasil = {};
+    for (let k = 0; k < N; k++) {
+      const th = fase + k * 2 * Math.PI / N, ox = Math.cos(th), oz = Math.sin(th), x = cx + ox * Rc, z = cz + oz * Rc, rot = Math.PI / 2 - th, apa = khusus[k];
+      if (apa === 'buka') continue;
+      if (apa === 'rendah') {
+        daratan(x, Y0 + 2.2, z, pj * 0.9, 6.5, tebal * 0.7, 'karang', { rot: [0, rot, 0], atas: [0.8, 0.7] });
+        buih(x, z, pj * 1.1, tebal * 1.1, rot, k);
+        continue;
+      }
+      const t = tinggi * (0.84 + rA() * 0.3);
+      if (apa === 'lorong') {
+        // dinding kiri-kanan tegak dan atap melayang: bukaan yang terlihat sama persis dengan area tabrakannya
+        const wd = (pj - LOR.lebar) / 2, off = LOR.lebar / 2 + wd / 2, c = Math.cos(rot), s = Math.sin(rot);
+        for (const sg of [-1, 1]) daratan(x + sg * off * c, Y0 + t / 2 - 0.5, z - sg * off * s, wd, t + 1, tebal, tebing, { rot: [0, rot, 0], uv: uvB });
+        daratan(x, Y0 + (LOR.tinggi + t) / 2, z, pj, t - LOR.tinggi, tebal, { sisi: 'tebing', atas: 'rumput', bawah: 'tebing' }, { rot: [0, rot, 0], melayang: true, uv: uvB });
+        hasil.lorong = { x, z, ox, oz, tebal };
+      } else {
+        const dekat = khusus[(k + 1) % N] === 'lorong' || khusus[(k + N - 1) % N] === 'lorong', pk = dekat ? pj * 0.72 : pj;   // tetangga lorong dipendekkan agar tidak menjorok ke bukaan
+        daratan(x, Y0 + 1.4, z, pk * 1.08, 4.4, tebal * (dekat ? 1.1 : 1.28), basah, { rot: [0, rot, 0], atas: [0.96, 0.9], uv: uvB });
+        buih(x, z, pk * 1.16, tebal * 1.5, rot, k);
+        daratan(x, Y0 + t / 2, z, pk, t, tebal, tebing, { rot: [0, rot, 0], atas: [0.97, 0.86], uv: uvB });
+        if (rA() < 0.55) { const e = 14 + rA() * 26; daratan(x - ox * tebal * 0.08, Y0 + t + e / 2 - 2, z - oz * tebal * 0.08, pk * (0.4 + rA() * 0.3), e, tebal * 0.5, tebing, { rot: [0, rot + rA() - 0.5, 0], atas: [0.7, 0.7], uv: uvB }); }
+      }
+      for (let i = 0; i < 2; i++) pohon(x + (rA() - 0.5) * pj * 0.4, Y0 + t - 0.2, z + (rA() - 0.5) * tebal * 0.3, 2 + rA());
+    }
+    return hasil;
+  }
+  const TKZ = -1750, TKB = -360, TKT = 360;
+  gelang(TKB, TKZ, 175, 80, 112, 12, { 0: 'buka', 1: 'buka', 11: 'buka' }, 0);                            // pulau barat: bulan sabit, teluknya menghadap selat
+  const pulauTimur = gelang(TKT, TKZ, 175, 80, 104, 12, { 3: 'lorong', 9: 'rendah', 10: 'buka' }, 20 * D2R);
+  dangkal(0, TKZ, 1180, 640, 0);
+  BL.kotak(TKT, Y0 + 0.08, TKZ, 300, 0.02, 300, { atas: 'u' });                                           // laguna hijau terang
+  BL.kotak(TKB + 30, Y0 + 0.08, TKZ, 250, 0.02, 250, { atas: 'u' });
+  daratan(TKB - 96, Y0 + 1.2, TKZ, 70, 3.4, 150, { sisi: 'pasir', atas: 'pasir' }, { atas: [0.8, 0.85] });   // pantai di dalam teluk barat
+  for (let i = 0; i < 6; i++) palem(TKB - 100 + (rA() - 0.5) * 30, Y0 + 2.8, TKZ + (rA() - 0.5) * 110, 1.6 + rA() * 0.8);
+  (function () {                                                                                          // buih yang mengalir di kaki tebing menuju mulut lorong
+    const L = pulauTimur.lorong, t = (d, g) => [L.x + L.ox * d - L.oz * g, L.z + L.oz * d + L.ox * g];
+    for (const g of [-13, 0, 13]) alur([t(190, g * 2.4), t(120, g * 1.6), t(60, g), t(0, g), t(-70, g), t(-130, g * 1.8)], 6);
+    for (const g of [-21, 21]) alur([t(46, g), t(-46, g)], 3);
+    karang(...t(150, 62), 1.6, 0); karang(...t(160, -66), 1.5, 1);
+  })();
+  tonggak(TKB + 90, TKZ + 300, 18, 52, 16, 0.5, 0);
+  tonggak(TKB - 40, TKZ + 320, 13, 36, 14, 1.2, 1);
+  tonggak(TKT + 250, TKZ + 140, 16, 44, 15, 0.2, 0);
+
+  /* ---------- Gunung Bara: kerucut vulkanik berteras, punggung-punggung gunung, lembah lebar, dan celah punggungan ---------- */
+  const GX = CFG.gunung.x, GZ = CFG.gunung.z, GT = CFG.gunung.tinggi, NLAPIS = 11, TLAPIS = GT / NLAPIS;
+  for (const [r, w] of [[0.2, 900], [0.95, 860]]) daratan(GX + 30, Y0 + 3.5, GZ, w, 9, w, { sisi: 'batuBasah', atas: 'rumput' }, { rot: [0, r, 0], atas: [0.95, 0.95], uv: uvR });
+  buih(GX + 30, GZ, 975, 975, 0.2, 0); buih(GX + 30, GZ, 930, 930, 0.95, 1);
+  dangkal(GX, GZ, 1900, 1800, 0.3);
+  for (let k = 0; k < NLAPIS; k++) {                                                                      // puncak bergeser ke timur: lereng barat lebih landai
+    const r = 430 * Math.pow(1 - k / NLAPIS, 1.6) + 44, s = r * 1.56, cx = GX + k * 12, ub = k >= 7 ? gelap : tebing;
+    for (const rr of [k * 0.37, k * 0.37 + 0.785]) daratan(cx, Y0 + k * TLAPIS + TLAPIS / 2 + 0.5, GZ, s, TLAPIS + 3, s, ub, { rot: [0, rr, 0], atas: [0.86, 0.86], uv: uvR });
+    if (k < 6) for (let i = 0; i < 9; i++) { const a = rA() * 6.28, d = r * (0.72 + rA() * 0.12); pohon(cx + Math.cos(a) * d, Y0 + (k + 1) * TLAPIS + 1.8, GZ + Math.sin(a) * d, 3 + rA() * 2); }
+  }
+  const puncak = new V3(GX + (NLAPIS - 1) * 12, Y0 + GT + 2, GZ);
+  for (const [dx, dz] of [[-34, 0], [34, 0], [0, -34], [0, 34]]) daratan(puncak.x + dx, puncak.y + 8, puncak.z + dz, dx ? 22 : 84, 20, dx ? 84 : 22, gelap, { atas: [0.7, 0.7], uv: uvR });   // bibir kawah
+  PA.kotak(puncak.x, puncak.y + 2.2, puncak.z, 48, 0.6, 48, { atas: 'bara' });
+  const pijarBara = new THREE.Sprite(new THREE.SpriteMaterial({ map: texKilau, color: 0xff8a3a, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0.8 }));
+  pijarBara.position.set(puncak.x, puncak.y + 14, puncak.z); pijarBara.scale.setScalar(150);
+  scene.add(pijarBara);
+  // punggung gunung: deretan bilah batu yang meninggi ke arah puncak; celahKe = bilah yang dibelah celah sempit
+  function punggung(arahDer, r0, r1, t0, t1, lebar, n, celahKe = -1) {
+    const a = arahDer * D2R, sx = Math.sin(a), sz = -Math.cos(a), rot = Math.atan2(sx, sz), pj = (r0 - r1) / n;
+    for (let i = 0; i < n; i++) {
+      const f = (i + 0.5) / n, r = r0 - (r0 - r1) * f, t = t0 + (t1 - t0) * Math.pow(f, 0.85), l = lebar * (0.8 + f * 0.5), ub = t > 240 ? gelap : tebing;
+      if (i === celahKe) {                                                                                // dua bilah berdinding tegak dengan celah 24 satuan di antaranya
+        const p = (pj - 24) / 2;
+        for (const sg of [-1, 1]) { const rr = r + sg * (12 + p / 2); daratan(GX + sx * rr, Y0 + t / 2 - 1, GZ + sz * rr, l, t, p, ub, { rot: [0, rot, 0], atas: [0.32, 1], uv: uvR }); }
+      } else {
+        const lebih = (i === celahKe - 1 || i === celahKe + 1) ? 1.0 : 1.18;
+        daratan(GX + sx * r, Y0 + t / 2 - 1, GZ + sz * r, l, t, pj * lebih, ub, { rot: [0, rot, 0], atas: [0.32, 0.92], uv: uvR });
+      }
+    }
+  }
+  const ARAH_LEMBAH = 275;                                                                                // lembah lebar menghadap barat, ke Pelabuhan Aruna
+  punggung(ARAH_LEMBAH - 34, 760, 170, 24, 300, 84, 9);                                                   // punggung selatan: enak diikuti sambil mendaki
+  punggung(ARAH_LEMBAH + 34, 720, 170, 24, 300, 84, 9);
+  punggung(128, 720, 170, 40, 310, 76, 9, 4);                                                             // sisi timur-selatan: punggungan bercelah untuk manuver presisi
+  punggung(40, 640, 190, 40, 280, 76, 7);
+  // garis awan di lereng: gumpalan pipih yang berputar pelan mengelilingi gunung (boleh ditembus)
+  const awanBara = new THREE.Group();
   (function () {
-    const B = new Pembangun(AA, K.dunia), P = new Pembangun(AA, K.dunia);
-    const lam = { sisi: 'lambungKapal', atas: 'geladak' };
+    const mat = [polos(0xf6cdd6, { alfa: 0.86 }), polos(0xe9a9bc, { alfa: 0.8 }), polos(0xffe1c8, { alfa: 0.8 })];
+    for (let i = 0; i < 15; i++) {
+      const a = i / 15 * 6.283 + rA() * 0.2, d = 300 + rA() * 60, y = (rA() - 0.5) * 34;
+      for (let j = 0; j < 3; j++) {
+        const m = new THREE.Mesh(geoKubus, mat[(i + j) % 3]);
+        m.scale.set(80 + rA() * 90, 12 + rA() * 12, 44 + rA() * 40);
+        m.position.set(Math.cos(a) * d + (rA() - 0.5) * 50, y + j * 7, Math.sin(a) * d + (rA() - 0.5) * 50);
+        m.rotation.y = -a + Math.PI / 2;
+        awanBara.add(m);
+      }
+    }
+    awanBara.position.set(GX + 60, Y0 + GT * 0.47, GZ);
+    scene.add(awanBara);
+    const asap = [polos(0x6a5f80, { alfa: 0.5 }), polos(0x8a7d9c, { alfa: 0.36 }), polos(0xa79ab8, { alfa: 0.22 })];
+    for (let i = 0; i < 7; i++) { const m = new THREE.Mesh(geoKubus, asap[Math.min(2, i / 2.4 | 0)]); m.scale.setScalar(26 + i * 11); m.position.set(puncak.x + i * 16, puncak.y + 30 + i * 30, puncak.z + i * 7); m.rotation.y = i; scene.add(m); }
+  })();
+
+  /* ---------- Pelabuhan Aruna: kampung pesisir, dermaga kayu, perahu nelayan, jembatan merah di atas muara ---------- */
+  const AR = (function () {
+    const a = ARAH_LEMBAH * D2R, ox = Math.sin(a), oz = -Math.cos(a);                                     // arah dari gunung ke laut
+    return { O: [GX + ox * 1000, GZ + oz * 1000], u: [-ox, -oz], v: [oz, -ox] };                           // u: masuk ke darat, v: ke selatan
+  })();
+  const pA = (a, b) => [AR.O[0] + AR.u[0] * a + AR.v[0] * b, AR.O[1] + AR.u[1] * a + AR.v[1] * b];
+  const rotA = Math.atan2(AR.u[0], AR.u[1]), YB = Y0 + 8, JEMB = { a: 160, dek: Y0 + 27 };
+  const BK = new Pembangun(AS, 6), PK = new Pembangun(AS, 6);                                             // kampung dan jembatan: teksel lebih kasar karena dilihat dari jauh
+  for (const s of [-1, 1]) { const [x, z] = pA(175, s * 135); daratan(x, Y0 + 3.5, z, 160, 9, 410, { sisi: 'batuBasah', atas: 'rumput' }, { rot: [0, rotA, 0], atas: [0.97, 0.98], uv: uvB }); buih(x, z, 172, 424, rotA, s > 0 ? 0 : 1); }
+  { const [x, z] = pA(480, 0); daratan(x, Y0 + 3.5, z, 440, 9, 210, { sisi: 'batuBasah', atas: 'rumput' }, { rot: [0, rotA, 0], uv: uvB }); }
+  { const [x, z] = pA(170, 0); dangkal(x, z, 110, 430, rotA); const [x2, z2] = pA(-170, 0); dangkal(x2, z2, 620, 420, rotA); }
+  alur([pA(372, -30), pA(240, -36), pA(80, -40), pA(-60, -52), pA(-200, -90)], 5);                        // arus muara mengalir ke laut
+  alur([pA(372, 30), pA(240, 36), pA(80, 40), pA(-60, 52), pA(-200, 90)], 5);
+  (function jembatan() {
+    const a = JEMB.a, dek = JEMB.dek, rotJ = rotA + Math.PI / 2, merah = 'merahJembatan';
+    const [cx, cz] = pA(a, 0);
+    BA.kotak(cx, dek - 1.3, cz, 13, 2.6, 176, { atas: 'aspal', sisi: 'geladak', bawah: 'geladak' }, { rot: [0, rotJ, 0] });   // dek jalan
+    for (const s of [-1, 1]) {
+      const [gx, gz] = pA(a + s * 6.9, 0);
+      BK.kotak(gx, dek - 0.9, gz, 0.9, 3.4, 176, merah, { rot: [0, rotJ, 0] });                           // gelagar merah di kedua tepi dek
+      const [px, pz] = pA(a, s * 32);
+      BK.kotak(px, Y0 + (dek - Y0 - 2.6) / 2, pz, 7, dek - Y0 - 2.6, 16, 'fondasi', { rot: [0, rotA, 0] });   // pilar bentang tengah
+      tambahPenabrak(px, Y0 + (dek - Y0) / 2 - 1, pz, 7, dek - Y0, 16, rotA);
+      const [ax, az] = pA(a, s * 76);
+      BK.kotak(ax, YB + (dek - YB) / 2 - 1, az, 22, dek - YB, 16, 'fondasi', { rot: [0, rotA, 0] });       // kepala jembatan di tepi muara
+      tambahPenabrak(ax, YB + (dek - YB) / 2 - 1, az, 22, dek - YB, 16, rotA);
+      for (let j = 0; j < 3; j++) { const [rx, rz] = pA(a, s * (96 + j * 16)), t = (dek - YB) * (1 - (j + 1) / 4); daratan(rx, YB + t / 2 - 0.5, rz, 16, t + 1, 13, { sisi: 'batuKering', atas: 'geladak' }, { rot: [0, rotA, 0] }); }   // tangga landai ke kampung
+      // dua busur merah di atas bentang tengah, dengan batang penggantung
+      const N = 8, B = 40, T = 21;
+      for (let j = 0; j < N; j++) {
+        const b0 = -B + (2 * B) * j / N, b1 = -B + (2 * B) * (j + 1) / N, y0 = dek + T * (1 - (b0 / B) ** 2), y1 = dek + T * (1 - (b1 / B) ** 2);
+        const [mx, mz] = pA(a + s * 6.9, (b0 + b1) / 2), pj = Math.hypot(b1 - b0, y1 - y0);
+        BK.kotak(mx, (y0 + y1) / 2, mz, pj + 0.4, 1.5, 1.3, merah, { rot: [0, rotA, Math.atan2(y1 - y0, -(b1 - b0))] });
+        if (j > 0) { const [hx, hz] = pA(a + s * 6.9, b0); BK.kotak(hx, (dek + y0) / 2, hz, 0.4, y0 - dek, 0.4, merah); }
+      }
+    }
+    tambahPenabrak(cx, dek - 0.6, cz, 176, 5.2, 15, rotA, [1, 1], true);                                  // dek (melayang): kolong tetap bisa dilewati
+    tambahPenabrak(cx, dek + 12, cz, 84, 22, 15, rotA, [1, 1], true);                                     // busur
+    for (const s of [-1, 1]) { const [rx, rz] = pA(a, s * 168); BA.kotak(rx, YB + 0.1, rz, 9, 0.2, 60, { atas: 'aspal' }, { rot: [0, rotJ, 0] }); }
+  })();
+  (function kampung() {
+    const atap = ['genteng', 'atapBiru', 'atapMerah', 'atapKuning', 'genteng', 'atapBiru'];
+    let n = 0;
+    for (const s of [-1, 1]) for (const b of [78, 112, 150, 186]) for (let a = 4; a <= 366; a += 30) {
+      if (Math.abs(a - JEMB.a) < 20 || rA() < 0.22) continue;
+      const [x, z] = pA(a + (rA() - 0.5) * 8, s * (b + (rA() - 0.5) * 8)), w = 8 + rA() * 5, d = 9 + rA() * 6, h = 5 + rA() * 3.5, rot = rotA + (rA() < 0.5 ? 0 : Math.PI / 2) + (rA() - 0.5) * 0.16, ap = atap[n++ % atap.length];
+      BK.kotak(x, YB + h / 2, z, w, h, d, { sisi: 'dinding' }, { rot: [0, rot, 0] });
+      BK.kotak(x, YB + h + h * 0.28, z, w * 1.12, h * 0.56, d * 1.1, { px: ap, nx: ap, pz: 'dinding', nz: 'dinding', atas: ap }, { rot: [0, rot, 0], atas: [0.06, 1] });
+      if (n % 3 === 0) PK.kotak(x, YB + h * 0.55, z, w + 0.2, 1.2, 1.4, { px: 'jendela', nx: 'jendela' }, { rot: [0, rot, 0] });   // jendela menyala
+      tambahPenabrak(x, YB + h * 0.78, z, w * 1.1, h * 1.56, d * 1.1, rot);
+    }
+    for (const s of [-1, 1]) {                                                                            // dermaga kayu
+      for (const a of [50, 104, 236, 300]) { const [x, z] = pA(a, s * 45); BA.kotak(x, Y0 + 1.5, z, 22, 0.4, 3.6, 'kayu', { rot: [0, rotA, 0] }); for (const g of [-8, 0, 8]) { const [qx, qz] = pA(a, s * 45 + g); BA.kotak(qx, Y0 + 0.4, qz, 0.5, 2.4, 0.5, 'batang'); } }
+      const [x, z] = pA(-56, s * 92); BA.kotak(x, Y0 + 1.6, z, 4.4, 0.4, 76, 'kayu', { rot: [0, rotA, 0] });
+      for (let g = -32; g <= 32; g += 16) { const [qx, qz] = pA(-56 + g, s * 92); BA.kotak(qx, Y0 + 0.4, qz, 0.6, 2.6, 0.6, 'batang'); }
+      for (let i = 0; i < 6; i++) { const [tx, tz] = pA(20 + rA() * 340, s * (62 + rA() * 6)); palem(tx, YB - 0.1, tz, 1.4 + rA() * 0.7); }
+    }
+    scene.add(BK.bangun(matSuar), PK.bangun(matSuarPijar));
+  })();
+  // perahu nelayan: sebagian tertambat, tiga berlayar bolak-balik lewat kolong jembatan (bisa diikuti)
+  const geoPerahu = (function () {
+    const B = new Pembangun(AA, K.dunia), lam = { sisi: 'perahu', atas: 'kayu' };
+    B.ruas(-5, [0.5, 1.2, 0, 0.5], -2.5, [2.4, 1.6, 0, 0.3], lam).ruas(-2.5, [2.4, 1.6, 0, 0.3], 3.5, [2.4, 1.6, 0, 0.3], lam).ruas(3.5, [2.4, 1.6, 0, 0.3], 4.6, [1.6, 1.3, 0, 0.45], lam);
+    B.kotak(0, 1.9, 1.6, 1.8, 1.6, 2.2, { sisi: 'anjungan', atas: 'geladak' });
+    B.kotak(0, 3.2, -1.2, 0.14, 4.4, 0.14, 'batang');
+    return B.geometri();
+  })();
+  const perahuJalan = [], rutePerahu = [pA(330, -17), pA(60, -17), pA(-150, -34), pA(-270, 40), pA(-150, 44), pA(60, 17), pA(330, 17)];
+  (function () {
+    const tambat = [[50, -52, 1.6], [104, 52, -1.5], [236, -52, 1.5], [300, 52, -1.6], [-70, -100, 0.1], [-40, 100, 3.2], [-84, 84, 0.3]];
+    for (const [a, b, r] of tambat) { const m = new THREE.Mesh(geoPerahu, matAlam), [x, z] = pA(a, b); m.position.set(x, Y0 + 0.5, z); m.rotation.y = rotA + r; scene.add(m); }
+    let total = 0; const pj = rutePerahu.map((p, i) => { const q = rutePerahu[(i + 1) % rutePerahu.length], d = Math.hypot(q[0] - p[0], q[1] - p[1]); total += d; return d; });
+    rutePerahu.pj = pj; rutePerahu.total = total;
+    for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(geoPerahu, matAlam); scene.add(m); perahuJalan.push({ mesh: m, s: total * i / 3 }); }
+  })();
+
+  /* ---------- Kapal barang sebagai petunjuk skala, pulau-pulau lain, dan cakrawala ---------- */
+  const geoKapal = (function () {
+    const B = new Pembangun(AA, K.dunia), lam = { sisi: 'lambungKapal', atas: 'geladak' };
     B.ruas(-17, [1.0, 2.4, 0, 0.6], -11, [5, 3, 0, 0.3], lam).ruas(-11, [5, 3, 0, 0.3], 14, [5, 3, 0, 0.3], lam).ruas(14, [5, 3, 0, 0.3], 17, [4, 2.6, 0, 0.5], lam);
     B.kotak(0, 2.6, -3, 4, 1.6, 10, { sisi: 'peti', atas: 'geladak' });
     B.kotak(0, 3.6, 10, 4.4, 3.6, 5, { sisi: 'anjungan', atas: 'geladak' });
     B.kotak(0, 6.2, 11.5, 1.2, 1.8, 1.6, 'cerobong');
     B.kotak(0, 5.5, -9, 0.25, 5, 0.25, 'cerobong');
-    P.kotak(0, 8.1, -9, 0.4, 0.4, 0.4, 'lampuKapal').kotak(0, 5.6, 7.4, 3, 0.3, 0.1, 'lampuKapal');
-    kapal.add(B.bangun(matAlam), P.bangun(matAlamPijar));
-    kapal.position.set(kapalPos[0], Y0 + 1.2, kapalPos[1]);
-    kapal.rotation.y = Math.atan2(-(alurAkhir[0] - kapalPos[0]), -(alurAkhir[1] - kapalPos[1]));
-    scene.add(kapal);
-    tambahPenabrak(kapalPos[0], Y0 + 3.5, kapalPos[1], 6, 9, 36, kapal.rotation.y);
+    return B.geometri();
   })();
+  const kapalList = [];
+  for (const [x, z, r] of [[210, -840, 0.5], [1010, -1250, 2.1], [-1380, -1960, 4.0], [1900, -700, 1.2]]) {
+    const m = new THREE.Mesh(geoKapal, matAlam);
+    m.position.set(x, Y0 + 1.2, z); m.rotation.y = r; m.scale.setScalar(1.6);
+    scene.add(m); kapalList.push(m);
+    tambahPenabrak(x, Y0 + 5, z, 9.6, 14, 56, r);
+  }
+  pulau(-1900, -2600, 150, 60);
+  pulau(2950, -700, 170, 50, { palem: true });
+  pulau(-2250, 300, 140, 40);
+  pulau(620, 1500, 160, 45, { palem: true });
+  pulau(-950, -3300, 180, 70, { tebing: true });
+  pulau(2700, -3700, 200, 80, { tebing: true });
+  pulau(-4200, -3800, 300, 90, { jauh: true });
+  pulau(5300, -900, 340, 110, { jauh: true });
+  pulau(-600, -6200, 380, 120, { jauh: true });
+  pulau(3900, -5700, 300, 100, { jauh: true });
+  pulau(-5200, 900, 320, 90, { jauh: true });
+  pulau(900, 4300, 360, 100, { jauh: true });
+  pulau(4700, 2700, 280, 80, { jauh: true });
+  pulau(-3700, 3700, 300, 90, { jauh: true });
+
+  scene.add(BA.bangun(matAlam), PA.bangun(matAlamPijar), BB.bangun(matSuar), PB.bangun(matSuarPijar));
+  const matBuih = BF.map((b) => {
+    const m = new THREE.MeshBasicMaterial({ map: texBuih, transparent: true, opacity: 0.8, depthWrite: false });
+    const mesh = b.bangun(m); mesh.renderOrder = 3; scene.add(mesh);
+    return m;
+  });
+  (function () {
+    const lapis = (b, kv, alfa, urut) => { const t = tekstur(kv, { ulang: true }), m = b.bangun(new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: alfa, depthWrite: false })); m.renderOrder = urut; scene.add(m); };
+    lapis(BD, kvDangkal, 0.5, 1);                                                                          // laut dangkal lebih terang daripada laut dalam
+    lapis(BL, kvLaguna, 0.88, 2);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(AL.p, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(AL.u, 2));
+    g.setIndex(AL.i);
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: texAlur, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }));
+    m.renderOrder = 4; scene.add(m);
+  })();
+
+  // lokasi yang bisa ditemukan (untuk peta dan catatan penemuan)
+  const LOKASI = [
+    { id: 'pangkalan', nama: 'Pangkalan Tanjung Senja', x: LD.x, z: LD.z, r: 0 },
+    { id: 'suar', nama: 'Pulau Suar Lama', x: LX, z: LZ, r: 330 },
+    { id: 'teluk', nama: 'Teluk Kembar', x: 0, z: TKZ, r: 520 },
+    { id: 'laguna', nama: 'Laguna Hijau', x: TKT, z: TKZ, r: 120, yMaks: Y0 + 80 },
+    { id: 'aruna', nama: 'Pelabuhan Aruna', x: pA(JEMB.a, 0)[0], z: pA(JEMB.a, 0)[1], r: 330 },
+    { id: 'bara', nama: 'Gunung Bara', x: GX + 60, z: GZ, r: 560 },
+    { id: 'gerbang', nama: 'Gerbang Karang', x: GKX, z: GKZ, r: 120 }
+  ];
 
   /* =====================================================================
      MERCUSUAR: fondasi batu, badan meruncing, galeri, ruang lentera, rumah penjaga
      ===================================================================== */
-  const lensa = new V3(LX, Y0 + 14.55, LZ);
+  const lensa = new V3(LX, Y0 + DYS + 14.55 * SKS, LZ);                                                   // mercusuar diperbesar dan berdiri di puncak bukit agar terlihat dari pangkalan
   const suar = { poros: new THREE.Group(), sorot: [], sudut: 0.6, terpukul: -10, nyala: 1, flare: null, halo: null };
   (function buatMercusuar() {
-    const B = new Pembangun(AS, K.suar), P = new Pembangun(AS, K.suar), G = new Pembangun(AS, K.suar);
+    const B = new Pembangun(AS, K.suar / SKS), P = new Pembangun(AS, K.suar / SKS), G = new Pembangun(AS, K.suar / SKS);
+    const MS = new THREE.Matrix4().makeTranslation(LX, Y0 + DYS, LZ).multiply(new THREE.Matrix4().makeScale(SKS, SKS, SKS)).multiply(new THREE.Matrix4().makeTranslation(-LX, -Y0, -LZ));
+    B.atur(MS); P.atur(MS); G.atur(MS);
     const f = -Math.PI / 8, y = (s) => Y0 + s;
     B.cincin(LX, LZ, y(3.1), y(4.6), 2.35, 2.1, 8, 'fondasi', { fase: f });
     B.tutup(LX, LZ, y(4.6), 2.1, 8, 'fondasiAtas', true, f);
@@ -1181,14 +1445,16 @@ function buatGame(THREE, renderer) {
     kerucut(0.5, 6.0, L * 0.92, 0.06);
     kerucut(0.7, 5.5, 15, 0.07);                                                                          // hamburan kabut di dekat menara
     suar.poros.position.copy(lensa);
+    suar.poros.scale.setScalar(SKS);
+    suar.poros.rotation.z = -0.13;                                                                        // sorot sedikit menunduk agar menyapu air
     scene.add(suar.poros);
     const sprite = (skala) => {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texKilau, color: 0xffe6a8, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false }));
       s.position.copy(lensa); s.scale.setScalar(skala); scene.add(s);
       return s;
     };
-    suar.halo = sprite(15);
-    suar.flare = sprite(3);
+    suar.halo = sprite(15 * SKS);
+    suar.flare = sprite(3 * SKS);
   })();
 
   /* =====================================================================
@@ -1297,6 +1563,7 @@ function buatGame(THREE, renderer) {
     hud: $('hud'), laju: $('h-laju'), tinggi: $('h-tinggi'), gas: $('h-gas'), arah: $('h-arah'), panah: $('h-panah'), jarak: $('h-jarak'), kamera: $('h-kamera'),
     petunjuk: $('petunjuk'), retikel: $('retikel'), kursor: $('kursor'), netral: $('netral'),
     mulai: $('layar-mulai'), jeda: $('layar-jeda'), jatuh: $('layar-jatuh'), jatuhPesan: $('jatuh-pesan'),
+    peta: $('layar-peta'), petaJumlah: $('peta-jumlah'), panelPangkalan: $('panel-pangkalan'),
     btnMulai: $('btn-mulai'), btnLanjut: $('btn-lanjut'), btnLagi: $('btn-lagi'), btnPangkalan: $('btn-pangkalan'), btnPangkalan2: $('btn-pangkalan2')
   };
   $('kontrol-jeda').appendChild($('daftar-kontrol').cloneNode(true)).removeAttribute('id');
@@ -1305,12 +1572,84 @@ function buatGame(THREE, renderer) {
     el.mulai.hidden = m !== 'menu';
     el.jeda.hidden = m !== 'jeda';
     el.jatuh.hidden = m !== 'jatuh';
+    el.peta.hidden = m !== 'peta';
     el.hud.hidden = m === 'menu';
     const main = m === 'terbang';
     document.body.classList.toggle('main', main);
     el.retikel.hidden = el.kursor.hidden = el.netral.hidden = !main;
   }
   function pesan(teks, durasi = 4) { state.pesan = teks; state.pesanSampai = waktuSim + durasi; }
+
+  /* ---------- Penemuan lokasi: disimpan di perangkat agar tetap tercatat saat game dibuka lagi ---------- */
+  const KUNCI_SIMPAN = 'skuadron-senja.lokasi', ditemukan = new Set(['pangkalan']);
+  try { for (const id of JSON.parse(localStorage.getItem(KUNCI_SIMPAN) || '[]')) if (LOKASI.some((l) => l.id === id)) ditemukan.add(id); } catch (e) { /* penyimpanan tidak tersedia: catatan hanya berlaku selama sesi ini */ }
+  function periksaLokasi() {
+    for (const l of LOKASI) {
+      if (!l.r || ditemukan.has(l.id)) continue;
+      if (Math.hypot(jet.pos.x - l.x, jet.pos.z - l.z) > l.r || (l.yMaks !== undefined && jet.pos.y > l.yMaks)) continue;
+      ditemukan.add(l.id);
+      try { localStorage.setItem(KUNCI_SIMPAN, JSON.stringify([...ditemukan])); } catch (e) { /* abaikan */ }
+      pesan('Lokasi ditemukan: ' + l.nama + ' (' + ditemukan.size + '/' + LOKASI.length + '). Tekan M untuk melihat peta.', 6);
+      audio.temuan();
+    }
+  }
+
+  /* ---------- Peta sederhana (M): daratan digambar dari data tabrakan, jadi bentuknya sama dengan dunia ---------- */
+  const kvPeta = $('kanvas-peta'), gPeta = kvPeta.getContext('2d'), UK = kvPeta.width, [dasarPeta, gDasar] = kanvas(UK, UK);
+  const AREA = { cx: 500, cz: -1480, setengah: 1800 }, SKP = UK / (2 * AREA.setengah);
+  const kePeta = (x, z) => [(x - AREA.cx + AREA.setengah) * SKP, (z - AREA.cz + AREA.setengah) * SKP];
+  (function gambarDasarPeta() {
+    const g = gDasar;
+    g.fillStyle = '#152868'; g.fillRect(0, 0, UK, UK);
+    g.fillStyle = '#1b3478'; for (let i = 0; i < UK; i += 8) g.fillRect(0, i, UK, 1);
+    const warna = (t) => t < 4 ? '#3f9f9a' : t < 12 ? '#c9b98e' : t < 60 ? '#6f9c62' : t < 170 ? '#5f8a58' : t < 330 ? '#7b7081' : '#9a8f99';
+    for (const p of penabrak.filter((q) => !q.melayang && q.y1 > Y0 + 1.2).sort((a, b) => a.y1 - b.y1)) {
+      const [px, pz] = kePeta(p.x, p.z), fx = (1 + p.fx) / 2, fz = (1 + p.fz) / 2;
+      g.save(); g.transform(p.c, -p.s, p.s, p.c, px, pz);
+      g.fillStyle = warna(p.y1 - Y0);
+      g.fillRect(-p.hx * fx * SKP, -p.hz * fz * SKP, 2 * p.hx * fx * SKP, 2 * p.hz * fz * SKP);
+      g.restore();
+    }
+    const garis = (a, b, c, w) => { g.strokeStyle = c; g.lineWidth = w; g.beginPath(); g.moveTo(...kePeta(a[0], a[1])); g.lineTo(...kePeta(b[0], b[1])); g.stroke(); };
+    garis([LD.x, LD.z - LD.panjang / 2], [LD.x, LD.z + LD.panjang / 2], '#fff3df', 3);                      // landasan
+    garis(pA(JEMB.a, -88), pA(JEMB.a, 88), '#ff4b5c', 3);                                                   // jembatan merah
+  })();
+  function gambarPeta() {
+    const g = gPeta;
+    g.imageSmoothingEnabled = false;
+    g.drawImage(dasarPeta, 0, 0);
+    g.font = 'bold 14px "Courier New", Consolas, monospace'; g.textBaseline = 'middle';
+    const tulis = (teks, x, y, c) => {
+      const w = g.measureText(teks).width, tx = clamp(x + 10, 4, UK - w - 4);
+      g.fillStyle = 'rgba(11,13,42,.82)'; g.fillRect(tx - 3, y - 9, w + 6, 18);
+      g.fillStyle = c; g.fillText(teks, tx, y + 1);
+    };
+    for (const l of LOKASI) {
+      const [x, y] = kePeta(l.x, l.z), tahu = ditemukan.has(l.id);
+      g.fillStyle = '#0b0d2a'; g.fillRect(x - 6, y - 6, 12, 12);
+      g.fillStyle = tahu ? (l.id === 'pangkalan' ? '#62f3ff' : '#ff9a3c') : '#cdb9f5'; g.fillRect(x - 4, y - 4, 8, 8);
+      tulis(tahu ? l.nama : '?', x, l.id === 'laguna' ? y + 18 : y, tahu ? '#fff3df' : '#cdb9f5');
+    }
+    // posisi dan arah hadap jet
+    const [jx, jy] = kePeta(jet.pos.x, jet.pos.z), x = clamp(jx, 10, UK - 10), y = clamp(jy, 10, UK - 10);
+    g.save(); g.translate(x, y); g.rotate(-jet.yaw);
+    g.fillStyle = '#0b0d2a'; g.beginPath(); g.moveTo(0, -14); g.lineTo(10, 11); g.lineTo(0, 6); g.lineTo(-10, 11); g.closePath(); g.fill();
+    g.fillStyle = '#ffe08a'; g.beginPath(); g.moveTo(0, -10); g.lineTo(7, 8); g.lineTo(0, 4); g.lineTo(-7, 8); g.closePath(); g.fill();
+    g.restore();
+    el.petaJumlah.textContent = ditemukan.size + '/' + LOKASI.length;
+  }
+  function bukaPeta() {
+    if (state.mode !== 'terbang') return;
+    akhiriLihat(); bersihkanInput();
+    gambarPeta();
+    aturMode('peta');
+  }
+  function tutupPeta() {
+    if (state.mode !== 'peta') return;
+    kemudi.campur = Math.min(kemudi.campur, 0.2);
+    kam.tahanAngguk = jet.angguk;
+    aturMode('terbang');
+  }
 
   /* =====================================================================
      PARTIKEL: kilat inti, serpihan, asap yang cepat menipis (jumlah dibatasi)
@@ -1576,7 +1915,7 @@ function buatGame(THREE, renderer) {
     const kilau = Math.pow(Math.max(0, Math.cos(suar.sudut) * tmp.x - Math.sin(suar.sudut) * tmp.z), 26);   // berkas mengarah ke kamera
     matLentera.color.copy(warnaNyala).multiplyScalar(0.8 + 0.2 * kilau);
     suar.flare.material.opacity = 0.45 + 0.55 * kilau;
-    suar.flare.scale.setScalar(2.6 + 6.5 * kilau);
+    suar.flare.scale.setScalar((2.6 + 6.5 * kilau) * SKS);
     suar.halo.material.opacity = 0.2;
   }
   function perbaruiLatar(dt) {
@@ -1595,8 +1934,23 @@ function buatGame(THREE, renderer) {
     langit.awan.rotation.y = waktuLatar * 0.0025;
     matBuih[0].opacity = 0.62 + 0.26 * Math.sin(waktuLatar * 1.1);
     matBuih[1].opacity = 0.62 + 0.26 * Math.sin(waktuLatar * 1.1 + 2.2);
-    kapal.position.y = Y0 + 1.2 + Math.sin(waktuLatar * 0.8) * 0.12;
     perbaruiSuar(dt);
+    texAlur.offset.y = (-waktuLatar * 0.3) % 1;                                         // buih mengalir menuju lorong dan muara
+    awanBara.rotation.y = waktuLatar * 0.006;
+    pijarBara.material.opacity = 0.62 + 0.2 * Math.sin(waktuLatar * 1.7);
+    const kedip = waktuLatar % 2.4, nyala = kedip < 0.25 || (kedip > 1.2 && kedip < 1.45);
+    lampuPangkalan.material.color.setHex(kedip < 1.2 ? 0x8dffb0 : 0xffffff);
+    lampuPangkalan.material.opacity = nyala ? 1 : 0.15;
+    lampuPangkalan.scale.setScalar(clamp(camera.position.distanceTo(lampuPangkalan.position) * 0.014, 1.6, 44) * (nyala ? 1 : 0.5));
+    for (const k of kapalList) k.position.y = Y0 + 1.2 + Math.sin(waktuLatar * 0.8 + k.position.x) * 0.15;
+    for (const p of perahuJalan) {                                                      // perahu nelayan menyusuri rutenya
+      let d = (p.s + waktuLatar * 5) % rutePerahu.total, i = 0;
+      while (i < rutePerahu.pj.length - 1 && d > rutePerahu.pj[i]) { d -= rutePerahu.pj[i]; i++; }
+      const a = rutePerahu[i], b = rutePerahu[(i + 1) % rutePerahu.length], f = d / rutePerahu.pj[i];
+      p.mesh.position.set(a[0] + (b[0] - a[0]) * f, Y0 + 0.5 + Math.sin(waktuLatar * 1.6 + p.s) * 0.08, a[1] + (b[1] - a[1]) * f);
+      const arahP = Math.atan2(-(b[0] - a[0]), -(b[1] - a[1]));
+      p.mesh.rotation.y += selisihSudut(arahP, p.mesh.rotation.y) * (1 - Math.exp(-2 * dt));
+    }
     // nyala mesin berlapis: panjang mengikuti gas dengan perubahan halus
     jet.dorong += (jet.gas - jet.dorong) * (1 - Math.exp(-4 * dt));
     const pj = 0.3 + jet.dorong * 1.1 + 0.07 * Math.sin(waktuLatar * 23) + 0.05 * Math.sin(waktuLatar * 37 + 1);
@@ -1694,6 +2048,7 @@ function buatGame(THREE, renderer) {
   const setel = (k, elx, v) => { if (lama[k] !== v) { elx.textContent = v; lama[k] = v; } };
   const MATA_ANGIN = ['U', 'TL', 'T', 'TG', 'S', 'BD', 'B', 'BL'];
   const proyeksi = new V3();
+  const diLautLuar = () => Math.hypot(jet.pos.x - CFG.dunia.pusat[0], jet.pos.z - CFG.dunia.pusat[1]) > CFG.dunia.radiusLuar;
   function petunjukSekarang() {
     if (state.mode === 'jatuh') return ['', false];
     if (waktuSim < state.pesanSampai) return [state.pesan, false];
@@ -1709,6 +2064,7 @@ function buatGame(THREE, renderer) {
       if (Math.min(sumbu, Math.PI - sumbu) < rad(35)) return ['Landasan di depan. Kurangi gas (S) dan turun landai untuk mendarat.', false];
     }
     if (kam.melihat) return ['Menoleh. Pesawat menjaga arah sampai klik kanan dilepas.', false];
+    if (diLautLuar()) return ['Laut luar. Ikuti panah Pangkalan di kanan atas atau sorot mercusuar untuk pulang. Menu jeda (P) bisa mengembalikan ke pangkalan.', false];
     return ['', false];
   }
   function perbaruiHUD() {
@@ -1727,6 +2083,8 @@ function buatGame(THREE, renderer) {
     const [teks, bahaya] = petunjukSekarang();
     if (lama.petunjuk !== teks) { el.petunjuk.textContent = teks; el.petunjuk.hidden = !teks; lama.petunjuk = teks; }
     if (lama.bahaya !== bahaya) { el.petunjuk.classList.toggle('bahaya', bahaya); lama.bahaya = bahaya; }
+    const luar = diLautLuar();
+    if (lama.luar !== luar) { el.panelPangkalan.classList.toggle('sorot', luar); lama.luar = luar; }
     if (state.mode !== 'terbang') return;
     // penanda arah hidung: ke sanalah pesawat sedang menuju
     camera.updateMatrixWorld();
@@ -1739,10 +2097,31 @@ function buatGame(THREE, renderer) {
     if (lama.kursor !== kursor) { el.kursor.style.visibility = kursor ? '' : 'hidden'; el.netral.style.visibility = kam.melihat ? 'hidden' : ''; lama.kursor = kursor; }
     if (kursor) el.kursor.style.transform = 'translate3d(' + kemudi.px + 'px,' + kemudi.py + 'px,0)';
   }
+  // Resolusi adaptif: dunia terbuka membebani piksel, jadi rasio piksel mengikuti laju bingkai yang terukur.
+  const rasioMaks = () => Math.min(window.devicePixelRatio || 1, CFG.rasioPikselMaks);
+  const res = { rasio: rasioMaks(), waktu: 0, bingkai: 0, bagus: 0, tahan: 15, naikSetelah: 0 };
+  function aturRasio(dtAsli, sekarang) {
+    if (dtAsli <= 0 || dtAsli > 0.25 || state.mode !== 'terbang') { res.waktu = 0; res.bingkai = 0; return; }   // hanya diukur saat terbang
+    res.waktu += dtAsli; res.bingkai++;
+    if (res.waktu < 1.2) return;
+    const fps = res.bingkai / res.waktu;
+    res.waktu = 0; res.bingkai = 0;
+    let baru = res.rasio;
+    if (fps < 50 && res.rasio > CFG.rasioPikselMin) {
+      baru = Math.max(CFG.rasioPikselMin, res.rasio - 0.25);
+      res.naikSetelah = sekarang + res.tahan * 1000;            // jangan langsung naik lagi supaya resolusi tidak bolak-balik
+      res.tahan = Math.min(res.tahan * 2, 240);
+      res.bagus = 0;
+    } else if (fps > 57 && res.rasio < rasioMaks() && sekarang > res.naikSetelah) {
+      if (++res.bagus >= 5) { baru = Math.min(rasioMaks(), res.rasio + 0.25); res.bagus = 0; }
+    } else res.bagus = 0;
+    if (baru !== res.rasio) { res.rasio = baru; renderer.setPixelRatio(baru); renderer.setSize(lebar, tinggi); }
+  }
   function ubahUkuran() {
     lebar = Math.max(1, window.innerWidth);
     tinggi = Math.max(1, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, CFG.rasioPikselMaks));
+    res.rasio = Math.min(res.rasio, rasioMaks());
+    renderer.setPixelRatio(res.rasio);
     renderer.setSize(lebar, tinggi);
     terapkanFov(kam.fov);
   }
@@ -1776,14 +2155,16 @@ function buatGame(THREE, renderer) {
     const n = Math.max(1, Math.ceil(dt / CFG.langkahFisika - 1e-6)), h = dt / n;
     for (let i = 0; i < n && state.mode === 'terbang'; i++) { waktuSim += h; langkah(h); }
     terapkanJet();
+    if (state.mode === 'terbang') periksaLokasi();
   }
   let terakhir = performance.now();
   function loop(sekarang) {
     requestAnimationFrame(loop);
-    const dt = clamp((sekarang - terakhir) / 1000, 0, CFG.dtMaks);
+    const asli = (sekarang - terakhir) / 1000, dt = clamp(asli, 0, CFG.dtMaks);
     terakhir = sekarang;
+    aturRasio(asli, sekarang);
     if (state.mode === 'terbang' && dt > 0) majukan(dt);
-    if (state.mode !== 'jeda') {
+    if (state.mode !== 'jeda' && state.mode !== 'peta') {
       if (state.mode === 'menu') kam.lihatYaw = waktuLatar * 0.12 + 0.6;                // kamera mengitari jet di layar pembuka
       perbaruiKamera(dt);
       perbaruiLatar(dt);
@@ -1795,7 +2176,11 @@ function buatGame(THREE, renderer) {
   /* ---------- Input (dipasang sekali) ---------- */
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyP') {
-      if (!e.repeat) { if (state.mode === 'terbang') jedakan(); else if (state.mode === 'jeda') lanjutkan(); }
+      if (!e.repeat) { if (state.mode === 'terbang') jedakan(); else if (state.mode === 'jeda') lanjutkan(); else if (state.mode === 'peta') tutupPeta(); }
+      return;
+    }
+    if (e.code === 'KeyM' || (e.code === 'Escape' && state.mode === 'peta')) {
+      if (!e.repeat) { if (state.mode === 'terbang') bukaPeta(); else if (state.mode === 'peta') tutupPeta(); }
       return;
     }
     if (e.code === 'KeyC') {
