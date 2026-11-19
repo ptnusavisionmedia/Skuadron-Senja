@@ -22,7 +22,7 @@
   }
   body.main, body.main * { cursor: none; }
   [hidden] { display: none !important; }
-  #kanvas { position: fixed; inset: 0; display: block; image-rendering: pixelated; }
+  #kanvas { position: fixed; inset: 0; display: block; }
 
   /* ---------- HUD ---------- */
   #hud { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
@@ -235,12 +235,12 @@ const CFG = {
     'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
     'https://unpkg.com/three@0.160.0/build/three.module.js'
   ],
-  tinggiPiksel: 490,               // resolusi dunia; teks HUD tetap setajam layar
+  tinggiPiksel: 1440,              // batas resolusi dunia pada layar berkerapatan tinggi
   dtMaks: 0.05,
   langkahFisika: 1 / 120,           // langkah simulasi tetap agar rasa kontrol sama di frame rate berbeda
   lautY: -9,
   kabut: { warna: 0xf0b6aa, dekat: 700, jauh: 5800 },
-  matahari: { arah: [0.416, -0.909], elevasi: 4.2 },
+  matahari: { arah: [0.416, -0.909], elevasi: 7.6 },
   kerapatan: { jet: 24, suar: 12, dunia: 8 },           // teksel per satuan
   terbang: {
     kecMinUdara: 24, kecJelajah: 58, kecMaks: 86, kecTukikMaks: 108,
@@ -319,7 +319,12 @@ async function muatThree() {
   let renderer;
   try {
     // kedalaman logaritmik: kokpit butuh bidang dekat yang sangat kecil sementara pulau terlihat hingga ribuan satuan
-    renderer = new THREE.WebGLRenderer({ canvas: $('kanvas'), antialias: false, powerPreference: 'high-performance', logarithmicDepthBuffer: true });
+    renderer = new THREE.WebGLRenderer({ canvas: $('kanvas'), antialias: true, powerPreference: 'high-performance', logarithmicDepthBuffer: true });
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.04;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.autoUpdate = false;
   } catch (e) {
     tampilGalat('WebGL tidak tersedia',
       'Browser atau perangkat ini tidak dapat membuat renderer WebGL. Aktifkan akselerasi perangkat keras atau coba browser desktop modern lain.');
@@ -427,6 +432,19 @@ function buatGame(THREE, renderer) {
       t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
+  }
+  // Bentuk medan di koordinat yang sama tetap konsisten pada setiap tingkat detail.
+  function reliefBumi(x,z,benih=0) {
+    const i=Math.floor(x), j=Math.floor(z);
+    let u=x-i, v=z-j;
+    u=u*u*(3-2*u); v=v*v*(3-2*v);
+    const kisi=(a,b) => {
+      let h=Math.imul(a,374761393)^Math.imul(b,668265263)^Math.imul(benih,1274126177);
+      h=Math.imul(h^(h>>>15),2246822519);
+      return ((h^(h>>>13))>>>0)/2147483648-1;
+    };
+    const a=kisi(i,j), b=kisi(i+1,j), c=kisi(i,j+1), d=kisi(i+1,j+1);
+    return (a+(b-a)*u)*(1-v)+(c+(d-c)*u)*v;
   }
   const hashNama = (s) => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
   function kanvas(w, h) {
@@ -621,33 +639,16 @@ function buatGame(THREE, renderer) {
      ATLAS TEKSTUR PIKSEL
      ===================================================================== */
   // Ubin cat berukuran kecil. Tiap bercak dan garis merupakan kelompok piksel yang terbaca di atas blok.
-  const AJ = new Atlas(256, 256);
+  const AJ = new Atlas(256, 128);
   const catJet = (nama, dasar, terang, teduh) => AJ.baru(nama, 16, 16, (q) => {
     q.isi(dasar).k(2, 3, 5, 1, terang).k(10, 10, 4, 2, teduh).k(9, 12, 2, 1, teduh);
   });
-  catJet('porselen', 0xd7e3d9, 0xecedd5, 0xb9c9c9);
-  catJet('salju', 0xf8eed1, 0xfff5da, 0xe0d6c5);
-  catJet('sayapBawah', 0x536a80, 0x647e90, 0x42536c);
   catJet('badan', 0x889da9, 0xa8bec1, 0x70849b);
-  catJet('merah', 0xe14c3d, 0xf7784e, 0xc73b40);
-  catJet('emas', 0xf3bd54, 0xffda88, 0xe19c4e);
   catJet('tepi', 0x9eb4b5, 0xc3d3ce, 0x8b9da4);
   catJet('mesin', 0x344356, 0x4a5c70, 0x263444);
-  AJ.baru('kisi', 12, 12, (q) => {
-    q.isi(0x263446).k(1, 1, 10, 10, 0x172e43);
-    for (const x of [2, 5, 8]) q.k(x, 3, 1, 6, 0x566b74);
-  });
-  AJ.baru('kaca', 16, 16, (q) => {
-    q.isi(0x296784).k(0, 1, 16, 4, 0x469ab1).k(0, 0, 16, 1, 0x78ced0);
-    q.k(3, 3, 5, 2, 0xabeee0).k(5, 5, 5, 2, 0x74c5cd).k(0, 12, 16, 4, 0x285777);
-  });
-  AJ.baru('lencana', 16, 16, (q) => {
-    q.isi(0xd7e3d9).k(2, 5, 12, 2, 0x934557).k(4, 7, 8, 2, 0xd24e41).k(6, 9, 4, 2, 0xf79050);
-  });
   AJ.baru('api', 8, 8, (q) => {
     q.isi(0x27739d).k(1, 1, 6, 6, 0x46b9dc).k(2, 2, 4, 4, 0xb6fff1);
   });
-  AJ.baru('lampuMerah', 8, 8, (q) => { q.isi(0xf85e49).k(2, 2, 4, 4, 0xffbc90); });
   AJ.baru('lampuHijau', 8, 8, (q) => { q.isi(0x49c9a5).k(2, 2, 4, 4, 0xadf9d1); });
   const texJet = tekstur(AJ.c);
 
@@ -664,15 +665,21 @@ function buatGame(THREE, renderer) {
   for (const [sisi, muka, cat, garis] of catKampung) {
     const papan = q => {
       q.isi(cat);
-      for (let y = 3; y < 16; y += 4) q.k(0, y, 24, 1, garis);
-      q.k(6, 0, 1, 3, garis).k(15, 8, 1, 3, garis);
+      for (let y = 3; y < 32; y += 4) {
+        q.k(0,y,48,1,garis);
+        const x = (y % 8 ? 9 : 21) + 3 * (y % 3);
+        q.k(x,y-3,1,3,garis).k(x+2,y-2,4,1,campur(cat,0xffdea3,0.15));
+      }
     };
-    AS.baru(sisi, 24, 16, papan);
-    AS.baru(muka, 24, 16, q => {
+    AS.baru(sisi, 48, 32, papan);
+    AS.baru(muka, 48, 32, q => {
       papan(q);
-      q.k(1, 2, 2, 14, 0x6c493d).k(21, 2, 2, 14, 0x6c493d);
-      q.k(4, 4, 7, 7, 0x463d47).k(5, 5, 2, 5, 0xffcf81).k(8, 5, 2, 5, 0xefae67);
-      q.k(14, 5, 6, 11, 0x634239).k(15, 6, 4, 10, 0x8b5f49).k(18, 11, 1, 1, 0xffd67e);
+      q.k(1,1,2,31,0x785640).k(45,1,2,31,0x785640);
+      q.k(7,7,16,14,0x553f3d).k(8,8,14,12,0x584a49);
+      q.k(9,9,5,5,0xf4ce8e).k(16,9,5,5,0xffdea4).k(9,15,5,4,0xc89365).k(16,15,5,4,0xd3a476);
+      q.k(5,7,2,14,0x8c6448).k(23,7,2,14,0x8c6448).k(6,21,18,2,0xc8a373);
+      q.k(29,8,12,24,0x5c413a).k(30,9,10,23,0x956e50).k(32,11,6,6,0x68504b);
+      q.k(32,18,6,1,0xb48762).k(38,23,1,2,0xfbd295);
     });
   }
   AS.baru('fondasi', 48, 20, (q) => {
@@ -689,6 +696,11 @@ function buatGame(THREE, renderer) {
     q.k(0, 0, 16, 2, 0x2b2740).k(0, 26, 16, 2, 0x2b2740).k(0, 13, 16, 1, 0x3d3856);                       // bingkai kaca
     q.k(0, 0, 5, 28, 0x2b2740).k(11, 0, 5, 28, 0x2b2740).k(4, 2, 1, 24, 0x55516e).k(11, 2, 1, 24, 0x55516e);
     q.k(3, 2, 1, 24, 0xffc45e).k(12, 2, 1, 24, 0xffc45e);
+  });
+  AS.baru('lensaAmber', 16, 28, q => {
+    q.isi(0xf0b669).k(0,0,16,2,0x8b624e).k(0,3,16,4,0xd59b65)
+      .k(0,9,16,2,0xffd991).k(0,11,16,7,0xffecc0).k(0,19,16,2,0xffda91)
+      .k(0,24,16,2,0xd89862).k(0,26,16,2,0x94624e);
   });
   AS.baru('atap', 24, 24, (q) => {
     q.isi(0xb5372f).k(0, 22, 24, 2, 0x7a2520).k(0, 0, 24, 3, 0xd9544a);
@@ -729,9 +741,13 @@ function buatGame(THREE, renderer) {
     q.k(5,20,11,3,0xc48a56).k(27,11,15,3,0x8f5e44);
   });
   AA.baru('lumutHutan',48,40,q => serpih(q,0x448751,[0x39804b,0x509854,0x468b4f],18,4));
+  AA.baru('semakBatu',32,24,q => serpih(q,0x899061,[0x78825d,0x9a976f,0x81886b],11,3));
   AA.baru('basalBara',48,40,q => serpih(q,0x64545b,[0x594c55,0x766263,0x6d595c],15,4));
   AA.baru('pasir',48,32,q => serpih(q,0xd7bb91,[0xe4cba2,0xd0b389,0xc8ad87],19));
   AA.baru('daun',32,32,q => serpih(q,0x388154,[0x31724d,0x4d965e,0x40875a],16,3));
+  AA.baru('pucukDaun',24,24,q => serpih(q,0x559859,[0x4b9053,0x609e64],9,2));
+  AA.baru('tajukKetapang',24,24,q => serpih(q,0x8aab67,[0x78995d,0x9bb373,0x83a262],8,3));
+  AA.baru('daunKetapang',24,24,q => serpih(q,0x607f50,[0x58774c,0x73915b,0x658854],7,3));
   AA.baru('daunPalem',32,16,q => {
     serpih(q,0x477b5b,[0x3e6b56,0x598858],10,2);
     q.k(0,6,16,3,0x7a9a63).k(16,8,16,2,0x71925f);
@@ -763,12 +779,18 @@ function buatGame(THREE, renderer) {
   const camera = new THREE.PerspectiveCamera(CFG.kamera.fov, 1, 0.5, 17000);
 
   // Sisi yang menghadap matahari: jingga keemasan. Sisi bayangan: biru keunguan dari langit.
-  scene.add(new THREE.HemisphereLight(0xffe5ce, 0x8997bd, 1.95));
+  scene.add(new THREE.HemisphereLight(0xd7dcff, 0xb29985, 1.38));
   const arahSurya = new THREE.Vector2(...CFG.matahari.arah).normalize();
-  const surya = new THREE.DirectionalLight(0xffcb93, 2.65);
-  // Pantulan dan tepi benda yang tersinari berbagi azimut; isian langit menjaga sisi teduh terbaca.
-  surya.position.set(arahSurya.x, 0.54, arahSurya.y);
-  scene.add(surya);
+  const arahCahaya = new V3(arahSurya.x, Math.tan(THREE.MathUtils.degToRad(CFG.matahari.elevasi)), arahSurya.y).normalize();
+  const surya = new THREE.DirectionalLight(0xffce99, 3.1);
+  surya.position.copy(arahCahaya).multiplyScalar(860);
+  surya.castShadow = true;
+  surya.shadow.mapSize.set(1024, 1024);
+  Object.assign(surya.shadow.camera, { left: -145, right: 145, top: 145, bottom: -145, near: 1, far: 1700 });
+  surya.shadow.camera.updateProjectionMatrix();
+  surya.shadow.bias = -0.000065;
+  surya.shadow.normalBias = 0.11;
+  scene.add(surya, surya.target);
 
   const geoKubus = new THREE.BoxGeometry(1, 1, 1);
   const tembolok = new Map();
@@ -785,10 +807,24 @@ function buatGame(THREE, renderer) {
   }
   const matJet = new THREE.MeshLambertMaterial({ map: texJet, emissiveMap: texJet, emissive: 0xffffff, emissiveIntensity: 0.12 });
   const matJetPijar = new THREE.MeshBasicMaterial({ map: texJet });
-  const matSuar = new THREE.MeshLambertMaterial({ map: texSuar, side: THREE.DoubleSide });
+  const matSuar = new THREE.MeshStandardMaterial({ map: texSuar, roughness: .76, metalness: .04, side: THREE.DoubleSide });
   const matSuarPijar = new THREE.MeshBasicMaterial({ map: texSuar });
   const matLentera = new THREE.MeshBasicMaterial({ map: texSuar });
-  const matAlam = new THREE.MeshLambertMaterial({ map: texAlam });
+  const matAlam = new THREE.MeshStandardMaterial({ map: texAlam, roughness: .93 });
+  const matMedan = matAlam.clone();
+  matMedan.vertexColors = true;
+  matMedan.onBeforeCompile = shader => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec3 normalLereng;')
+      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+        // Dekat pesawat, setiap muka voxel menangkap cahaya sendiri.
+        // Dari udara, cahaya juga mengikuti arah punggung dan lekukan lereng.
+        float jarakMedan = length((modelViewMatrix * vec4(position, 1.)).xyz);
+        float campuran = mix(.32, .87, smoothstep(35., 510., jarakMedan));
+        float searah = dot(normal, normalLereng);
+        float mukaLuar = step(-.1, normal.y) * mix(.48, 1., smoothstep(-.12, .45, searah));
+        objectNormal = mix(normal, normalLereng, campuran * mukaLuar);`);
+  };
   const matAlamPijar = new THREE.MeshBasicMaterial({ map: texAlam, fog: false });
 
   /* ---------- Tekstur alfa: gradasi sorot, kilau lensa, penanda, buih, kilau laut ---------- */
@@ -828,14 +864,6 @@ function buatGame(THREE, renderer) {
     }
   });
   const AF = atlasTunggal(kvBuih), texBuih = tekstur(kvBuih);
-  const texGlitter = tekstur(kanvasAlfa(64, 128, (set) => {
-    const r = pengacak(31);
-    for (let i = 0; i < 200; i++) {
-      const x = r() * 64 | 0, y = r() * 128 | 0, w = 3 + (r() * 8 | 0);
-      const c = r() < 0.24 ? 0xffe9ba : r() < 0.6 ? 0xffc77b : 0xef955a;
-      for (let k = 0; k < w; k++) set((x + k) % 64, y, c, k === 0 || k === w - 1 ? 150 : 255);
-    }
-  }), { ulang: true });
 
   /* =====================================================================
      LANGIT 360°: silinder yang mengikuti kamera, dengan matahari, awan, dan kabut horizon
@@ -883,7 +911,7 @@ function buatGame(THREE, renderer) {
           v += (dingin[k] - v) * (0.18 + 0.82 * kHangat) * (1 - dekat) * (0.46 + 0.46 * halus(52, 160, der));
           v += (emas[k] - v) * pijar;                                                             // pijar di sekitar matahari
           v += (kabut[k] - v) * kHaze;                                                            // kabut tipis di horizon
-          d[o + k] = clamp(Math.round(v / 6 + b) * 6, 0, 255);
+          d[o + k] = clamp(Math.round(v + b), 0, 255);
         }
         d[o + 3] = 255;
       }
@@ -894,11 +922,11 @@ function buatGame(THREE, renderer) {
       const terang = halus(26, 118, Math.abs(lilit(x)) / DER) * halus(0, 26, y) * (0.28 + r() * 0.48);
       [244, 230, 207].forEach((v, k) => { d[o + k] += (v - d[o + k]) * terang; });
     }
-    const R = 21;
+    const R = 14;
     for (let y = Math.floor(my - R); y <= my + R; y++) for (let xx = Math.floor(mx - R); xx <= mx + R; xx++) {
-      if (y < 0 || y >= HOR) continue;
-      const pita = (y - my) / R;
-      const cc = rgb(pita < 0.18 ? 0xfff2c5 : pita < 0.61 ? 0xffde9b : 0xffc47d), o = (y * Wd + ((xx % Wd) + Wd) % Wd) * 4;
+      if (y < 0 || y >= HOR || Math.pow(Math.abs(xx-mx)/R,3.2)+Math.pow(Math.abs(y-my)/R,3.2)>1) continue;
+      const pita = clamp((y-my+R)/(2*R),0,1);
+      const cc = rgb(campur(0xfff6d8,0xffda9e,pita)), o = (y * Wd + ((xx % Wd) + Wd) % Wd) * 4;
       d[o] = cc[0]; d[o + 1] = cc[1]; d[o + 2] = cc[2];
     }
     // Gumulan jauh terbelah menjadi celah cahaya. Semua frekuensi membentuk putaran utuh.
@@ -929,34 +957,54 @@ function buatGame(THREE, renderer) {
     t.wrapS = THREE.RepeatWrapping;
     const tinggi = Hd * PX;
     const m = new THREE.Mesh(new THREE.CylinderGeometry(RAD, RAD, tinggi, 72, 1, true),
-      new THREE.MeshBasicMaterial({ map: t, fog: false, depthWrite: false, side: THREE.BackSide }));
+      new THREE.MeshBasicMaterial({ map: t, fog: false, toneMapped: false, depthWrite: false, side: THREE.BackSide }));
     m.renderOrder = -10;
     m.frustumCulled = false;
     scene.add(m);
-    // Awan dekat dibentuk dari kolom pada satu kisi supaya ada paralaks saat terbang.
-    const selAwan = [];
-    const acak = pengacak(88);
-    for (let baris = -2; baris <= 2; baris++) for (let kol = -2; kol <= 2; kol++) {
-      const x = kol * 1560 + acak() * 1000 - 350, z = baris * 1520 + acak() * 1200 - 1800;
-      const y = 270 + Math.floor(acak() * 10) * 22, ukuran = 35 + Math.floor(acak() * 5) * 6;
-      const pj = 4 + Math.floor(acak() * 4);
-      for (let i = 0; i < pj; i++) {
-        const bobot = Math.sin(Math.PI * (i + 0.5) / pj);
-        const depan = Math.floor(acak() + bobot * 1.7), belakang = Math.floor(acak() + bobot * 1.6);
-        for (let j = -belakang; j <= depan; j++) {
-          const lapis = 1 + Math.floor(bobot * 1.9 * (1 - Math.abs(j) / 3) + acak() * 0.7);
-          const tebal = lapis * ukuran * 0.34;
-          selAwan.push([x + i * ukuran, y + tebal / 2, z + j * ukuran, ukuran, tebal]);
+    // Kolom kecil membentuk gumpalan bertingkat. Hanya sisi yang terbuka digambar.
+    const awan = new THREE.Group(), acak = pengacak(88);
+    const bahanAwan = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x71617f, emissiveIntensity: .55 });
+    for (let baris=-2; baris<=2; baris++) for (let kol=-2; kol<=2; kol++) {
+      const cx=kol*1560+acak()*1000-350, cz=baris*1520+acak()*1200-1800;
+      const cy=290+acak()*220, sel=7+Math.floor(acak()*4), pj=23+Math.floor(acak()*18), lebar=17;
+      const gumpal=[];
+      for (let i=0;i<5;i++) gumpal.push([3+i*(pj-6)/5,7+acak()*3,3+acak()*4,2.2+acak()*3,2+acak()*4]);
+      const selDi = (i,j) => (i>=0 && j>=0 && i<pj && j<lebar) ? kolomAwan[j*pj+i] : null;
+      const kolomAwan=[];
+      for (let j=0;j<lebar;j++) for (let i=0;i<pj;i++) {
+        let isi=0;
+        for (const [x,z,rx,rz,h] of gumpal) {
+          const s=1-((i-x)/rx)**2-((j-z)/rz)**2;
+          if (s>0) isi=Math.max(isi,h*Math.sqrt(s));
         }
+        kolomAwan.push(isi>.45 ? {atas:Math.ceil(isi)*sel*.72,bawah:-Math.ceil(isi*.36)*sel*.57} : null);
       }
+      const pos=[], warna=[], indeks=[];
+      const muka=(a,b,c,d,corak) => {
+        const n=pos.length/3; pos.push(...a,...b,...c,...d); indeks.push(n,n+1,n+2,n,n+2,n+3);
+        for(let i=0;i<4;i++) warna.push(corak.r,corak.g,corak.b);
+      };
+      const atas=new THREE.Color(0xffedcf), pinggir=new THREE.Color(0xf9d5c2), dasar=new THREE.Color(0xd0bbcc);
+      for (let j=0;j<lebar;j++) for (let i=0;i<pj;i++) {
+        const s=selDi(i,j); if (!s) continue;
+        const x=i*sel,z=j*sel,X=x+sel,Z=z+sel,h=s.atas,b=s.bawah;
+        muka([x,h,Z],[X,h,Z],[X,h,z],[x,h,z],atas);
+        muka([x,b,z],[X,b,z],[X,b,Z],[x,b,Z],dasar);
+        const sisi=(q,ax,az,bx,bz) => {
+          const bidang=(lo,hi) => { if(hi>lo) muka([ax,lo,az],[bx,lo,bz],[bx,hi,bz],[ax,hi,az],pinggir); };
+          if(!q) bidang(b,h);
+          else { bidang(b,q.bawah); bidang(q.atas,h); }
+        };
+        sisi(selDi(i-1,j),x,z,x,Z); sisi(selDi(i+1,j),X,Z,X,z);
+        sisi(selDi(i,j-1),X,z,x,z); sisi(selDi(i,j+1),x,Z,X,Z);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+      geo.setAttribute('color',new THREE.Float32BufferAttribute(warna,3));
+      geo.setIndex(indeks); geo.computeVertexNormals();
+      const gumpalan=new THREE.Mesh(geo,bahanAwan); gumpalan.position.set(cx,cy,cz);
+      awan.add(gumpalan);
     }
-    const bahanAwan = new THREE.MeshLambertMaterial({ color: 0xffecd9, emissive: 0xa581ac, emissiveIntensity: 0.68 });
-    const awan = new THREE.InstancedMesh(geoKubus, bahanAwan, selAwan.length);
-    const matriks = new THREE.Matrix4();
-    selAwan.forEach(([x, y, z, w, h], i) => {
-      matriks.makeScale(w, h, w).setPosition(x, y, z);
-      awan.setMatrixAt(i, matriks);
-    });
     scene.add(awan);
     return { kubah: m, awan, geserY: HOR * PX - tinggi / 2 };
   })();
@@ -964,64 +1012,140 @@ function buatGame(THREE, renderer) {
   /* =====================================================================
      LAUT TANPA BATAS: bidang yang mengikuti kamera, gelombang piksel, kilau matahari
      ===================================================================== */
-  const UBIN_LAUT = 32, LEBAR_LAUT = UBIN_LAUT * 640;
-  const texLaut = (function () {
-    const S = 64, [c, g] = kanvas(S, S), q = new Kuas(g, S, S, pengacak(5));
-    const lipat = (x, y, w, h, col) => { for (const ox of [0, -S]) for (const oy of [0, -S]) q.k(x + ox, y + oy, w, h, col); };
-    q.isi(0x285678);
-    for (let i = 0; i < 12; i++) lipat(q.r() * S, q.r() * S, 5 + q.r() * 12, 2 + q.r() * 2, 0x285372);
-    for (let i = 0; i < 18; i++) {
-      const x = q.r() * S, y = q.r() * S, w = 2 + q.r() * 4;
-      lipat(x, y, w, 1, 0x326381);
-      if (i % 3 === 0) lipat(x + w, y - 1, 2, 1, 0x40758e);
+  const UBIN_LAUT = 8, LEBAR_LAUT = 20480;
+  const cerminAir = new THREE.WebGLRenderTarget(1, 1, {
+    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false
+  });
+  // Medan kemiringan yang menyambung di kedua tepi. Mipmap meratakan riak yang sudah lebih kecil dari satu piksel.
+  function teksturRiak() {
+    const n=256, sampel=new Uint8Array(n*n*4), tau=2*Math.PI;
+    const gelombang=[[3,1,.68,.71],[-2,5,.34,2.4],[4,3,.28,5.3],[6,-3,.23,1.1],[-3,8,.19,3.7],[11,5,.11,2.9],[7,-13,.075,4.7]];
+    for (let y=0; y<n; y++) for (let x=0; x<n; x++) {
+      const u=x*tau/n, v=y*tau/n;
+      const px=u+.26*Math.sin(v+u)+.13*Math.sin(2*v-u), py=v+.19*Math.sin(2*u-v)+.15*Math.cos(v+2*u);
+      let dx=0, dz=0;
+      for (const [kx,kz,tinggi,fase] of gelombang) {
+        const lereng=Math.cos(kx*px+kz*py+fase)*tinggi/Math.hypot(kx,kz);
+        dx+=kx*lereng; dz+=kz*lereng;
+      }
+      const i=(y*n+x)*4;
+      sampel[i]=Math.round(127.5+clamp(dx,-1.65,1.65)*76);
+      sampel[i+1]=Math.round(127.5+clamp(dz,-1.65,1.65)*76);
+      sampel[i+3]=255;
     }
-    const t = tekstur(c, { ulang: true });
-    t.repeat.set(LEBAR_LAUT / UBIN_LAUT, LEBAR_LAUT / UBIN_LAUT);
-    return t;
-  })();
-  const waktuAir = { value: 0 };
-  const matLaut = new THREE.MeshLambertMaterial({ map: texLaut });
-  matLaut.onBeforeCompile = (shader) => {
-    shader.uniforms.waktuAir = waktuAir;
-    shader.uniforms.arahSurya = { value: arahSurya };
-    shader.uniforms.puncakOmbak = { value: texGlitter };
+    const tex = new THREE.DataTexture(sampel,n,n);
+    tex.wrapS=tex.wrapT=THREE.RepeatWrapping;
+    tex.generateMipmaps=true; tex.magFilter=THREE.LinearFilter; tex.minFilter=THREE.LinearMipmapLinearFilter;
+    tex.anisotropy=Math.min(4,anisoMaks); tex.needsUpdate=true;
+    return tex;
+  }
+  const airUniform = {
+    waktuAir: { value: 0 },
+    petaPesisir: { value: null },
+    batasPesisir: { value: new THREE.Vector4(-6100, -7200, 12288, 12288) },
+    pantulan: { value: cerminAir.texture },
+    riakAir: { value: teksturRiak() },
+    matriksPantul: { value: new THREE.Matrix4() },
+    sinarAir: { value: arahCahaya }
+  };
+  // Gelombang panjang mengubah tinggi permukaan. Turunannya dipakai kembali untuk normal optik.
+  const fungsiOmbak = `
+    vec3 ombak(vec2 p, float t) {
+      vec2 a = vec2(.094, .052), b = vec2(-.042, .141), c = vec2(.206, -.107);
+      vec3 fase = vec3(dot(p,a)-t*.94, dot(p,b)-t*1.27, dot(p,c)+t*1.49);
+      vec3 amplitudo = vec3(.21, .105, .052);
+      vec3 k = amplitudo * cos(fase);
+      return vec3(dot(amplitudo, sin(fase)), a*k.x + b*k.y + c*k.z);
+    }`;
+  const matLaut = new THREE.MeshPhongMaterial({ color: 0xffffff });
+  matLaut.onBeforeCompile = shader => {
+    Object.assign(shader.uniforms, airUniform);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 lautXZ;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nlautXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+      .replace('#include <common>', `#include <common>
+        uniform float waktuAir;
+        varying vec3 titikAir;
+        ${fungsiOmbak}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vec2 xz = (modelMatrix * vec4(position, 1.)).xz;
+        float dekat = 1. - smoothstep(160., 560., length(xz-cameraPosition.xz));
+        transformed.z += ombak(xz,waktuAir).x * dekat;
+        titikAir = (modelMatrix * vec4(transformed,1.)).xyz;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-        varying vec2 lautXZ;
+        varying vec3 titikAir;
         uniform float waktuAir;
-        uniform vec2 arahSurya;
-        uniform sampler2D puncakOmbak;`)
-      .replace('#include <map_fragment>', `#include <map_fragment>
-        vec2 silang = vec2(-arahSurya.y, arahSurya.x);
-        vec2 selAir = floor(lautXZ * 1.5) / 1.5;
-        vec2 alur = vec2(dot(selAir, silang), dot(selAir, arahSurya));
-        float gelombang = sin(alur.x * 0.018 + alur.y * 0.032 + waktuAir * 0.32);
-        float riak = sin(alur.y * 0.092 - alur.x * 0.007 + gelombang * 2.2 - waktuAir * 0.63);
-        vec2 keAir = lautXZ - cameraPosition.xz;
-        float jarakAir = max(length(keAir), 0.01);
-        float tinggiMata = max(cameraPosition.y - ${Y0.toFixed(1)}, 0.0);
-        float jarakPandang = length(vec2(jarakAir, tinggiMata));
-        float detailRiak = 1.0 - smoothstep(160.0, 850.0, jarakPandang);
-        float detailAlun = 1.0 - smoothstep(600.0, 2600.0, jarakPandang);
-        diffuseColor.rgb *= 1.0 + 0.055 * gelombang * detailAlun + 0.05 * riak * detailRiak;
-        float arahKilau = dot(keAir / jarakAir, arahSurya);
-        float jalur = smoothstep(0.942, 0.9985, arahKilau);
-        float elevasiPandang = tinggiMata / jarakAir;
-        float kilau = jalur * (1.0 - smoothstep(0.035, 0.39, elevasiPandang));
-        vec2 uvBuih = alur / vec2(63.0, 43.0) + vec2(0.0, waktuAir * 0.019);
-        vec4 puncak = texture2D(puncakOmbak, uvBuih);
-        vec4 puncakKecil = texture2D(puncakOmbak, uvBuih * 1.61 + vec2(0.38, -waktuAir * 0.046));
-        vec3 emas = puncak.rgb * puncak.a * (0.65 + 0.35 * riak * detailRiak)
-                  + puncakKecil.rgb * puncakKecil.a * 0.36;
-        totalEmissiveRadiance += kilau * (emas + vec3(0.058, 0.020, 0.004));`);
+        uniform sampler2D pantulan, petaPesisir, riakAir;
+        uniform mat4 matriksPantul;
+        uniform vec4 batasPesisir;
+        uniform vec3 sinarAir;
+        ${fungsiOmbak}`)
+      .replace('#include <shadowmap_pars_fragment>', '#include <shadowmap_pars_fragment>\n#include <shadowmask_pars_fragment>')
+      .replace('#include <opaque_fragment>', `
+        vec2 p = titikAir.xz;
+        vec3 lihat = normalize(cameraPosition-titikAir);
+        float jarak = length(cameraPosition-titikAir), t = waktuAir;
+        vec2 grad = ombak(p,t).yz;
+        float halus = 1. - smoothstep(45., 480., jarak);
+        float sedang = 1. - smoothstep(220., 1750., jarak);
+        float ayun = sin(dot(p,vec2(.048,-.029)) + t*.42);
+        grad *= .04 + .42*sedang;
+        vec2 belok = vec2(sin(p.y*.025+t*.13),sin(p.x*.032-t*.17))*.021;
+        vec2 riakA = texture2D(riakAir,p/87.+vec2(-t*.009,t*.003)+belok).rg*2.-1.;
+        vec2 riakB = texture2D(riakAir,mat2(.67,.74,-.74,.67)*p/32.+vec2(t*.013,-t*.008)-belok).rg*2.-1.;
+        vec2 riakC = texture2D(riakAir,p/9.+vec2(-t*.019,t*.024)).rg*2.-1.;
+        grad += riakA*(.02+.125*sedang) + riakB*(.008+.081*sedang) + riakC*.047*halus;
+        vec3 n = normalize(vec3(-grad.x,1.,-grad.y));
+        float nv = clamp(dot(n,lihat),.015,1.);
+        vec2 uvPesisir = (p-batasPesisir.xy)/batasPesisir.zw;
+        vec3 pesisir = texture2D(petaPesisir,uvPesisir).rgb;
+        float kedalaman = mix(22.,1.25,pesisir.r);
+        vec3 tembus = exp(-vec3(.29,.103,.075)*kedalaman / max(.46,nv));
+        vec2 dasar = p + grad*min(kedalaman,7.)*1.7;
+        float alur = riakB.x*.9+riakC.y*.75+sin(dot(dasar,vec2(.21,.16))+.35*t)*.26;
+        float kaustik = pow(max(0.,1.-abs(alur)*4.5),4.)*halus;
+        vec3 dalam = vec3(.008,.083,.115);
+        vec3 pasir = mix(vec3(.47,.51,.33),vec3(.23,.56,.32),pesisir.g);
+        float teduh = getShadowMask();
+        #if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0
+          vec2 petakBayang = vDirectionalShadowCoord[0].xy / vDirectionalShadowCoord[0].w;
+          vec2 tepiBayang = min(petakBayang, 1.-petakBayang);
+          teduh = mix(1.,teduh,smoothstep(0.,.19,min(tepiBayang.x,tepiBayang.y)));
+        #endif
+        vec3 warnaAir = (dalam*(1.-tembus) + pasir*tembus*(.8+.20*kaustik))*(.68+.32*teduh);
+        vec4 q = matriksPantul * vec4(titikAir,1.);
+        vec2 uv = q.xy / max(.001,q.w) * .5 + .5;
+        vec2 gangguan = (mat3(viewMatrix)*vec3(n.x,0.,n.z)).xy;
+        vec2 biasUV = (gangguan + vec2(0.,dot(n.xz,lihat.xz))) * (.048+.075*sedang);
+        uv = clamp(uv+biasUV,vec2(.002),vec2(.998));
+        vec2 sebar = vec2(.0018,.0035)*(.5+.9*sedang);
+        vec3 cermin = texture2D(pantulan,uv).rgb*.44
+          + .14*(texture2D(pantulan,uv+sebar).rgb+texture2D(pantulan,uv-sebar).rgb+
+                 texture2D(pantulan,uv+vec2(sebar.x,-sebar.y)).rgb+texture2D(pantulan,uv+vec2(-sebar.x,sebar.y)).rgb);
+        float fresnel = .024 + .976*pow(1.-nv,5.);
+        vec3 separuh = normalize(lihat+sinarAir);
+        float nh = max(dot(n,separuh),0.), nl = max(dot(n,sinarAir),.001);
+        float a2 = mix(.0035,.009,halus);
+        float d = nh*nh*(a2-1.)+1.;
+        float distribusi = a2/(3.14159*d*d);
+        float selubung = .5 / max(.001,nl*sqrt(a2+(1.-a2)*nv*nv)+nv*sqrt(a2+(1.-a2)*nl*nl));
+        float f = .021 + .979*pow(1.-clamp(dot(lihat,separuh),0.,1.),5.);
+        float kilau = min(2.2,distribusi*selubung*f*nl)*teduh;
+        outgoingLight = mix(warnaAir,cermin,.88*fresnel) + vec3(1.,.65,.36)*kilau;
+        float pantai = 1.-smoothstep(.012,.075,pesisir.b);
+        float garis = sin(pesisir.b*162.-t*1.4 + ayun*2.5);
+        float buih = pantai*smoothstep(.36,.94,garis+grad.x*3.)*(.18+.15*halus);
+        outgoingLight = mix(outgoingLight,vec3(.70,.81,.76)*(.6+.4*teduh),buih);
+        #include <opaque_fragment>`);
   };
-  // Segmen menstabilkan kedalaman dekat kamera agar lapisan air dangkal dan buih tidak terpotong.
-  const laut = new THREE.Mesh(new THREE.PlaneGeometry(LEBAR_LAUT, LEBAR_LAUT, 32, 32), matLaut);
-  laut.rotation.x = -Math.PI / 2;
+  // Kisi rapat di dekat pilot; empat sisi luar menutup lautan sampai cakrawala.
+  const geoAir = new THREE.PlaneGeometry(2,2,144,144);
+  const posisiAir = geoAir.attributes.position;
+  const rentang = u => 118*u + Math.sign(u)*(LEBAR_LAUT/2-118)*Math.pow(Math.abs(u),4.4);
+  for (let i=0; i<posisiAir.count; i++) posisiAir.setXY(i,rentang(posisiAir.getX(i)),rentang(posisiAir.getY(i)));
+  const laut = new THREE.Mesh(geoAir,matLaut);
+  laut.rotation.x = -Math.PI/2;
   laut.position.y = Y0;
+  laut.receiveShadow = true;
   laut.frustumCulled = false;
   scene.add(laut);
 
@@ -1068,58 +1192,123 @@ function buatGame(THREE, renderer) {
   // Satu kolom padat per sel. Hanya muka yang bersinggungan dengan udara yang digambar.
   // Deretan dengan tinggi identik berbagi mesh atas dan penabrak berbentuk balok.
   function medanBlok(cx, cz, nx, nz, sel, bentuk) {
-    const x0 = cx - nx*sel/2, z0 = cz - nz*sel/2;
-    const kolom = Array.from({length: nz}, (_, j) => Array.from({length: nx}, (_, i) =>
-      bentuk((i + 0.5 - nx/2)*sel, (j + 0.5 - nz/2)*sel)));
-    const uv = { skala: 0.48, _jadi: true };
-    function muka(ax, az, bx, bz, bawah, atas, ubin) {
-      if (atas <= bawah) return;
-      BA.quad([ax,Y0+bawah,az], [bx,Y0+bawah,bz], [bx,Y0+atas,bz], [ax,Y0+atas,az], ubin, uv);
-    }
-    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
-      const p = kolom[j][i];
-      if (!p) continue;
-      const x = x0 + i*sel, z = z0 + j*sel, b = p.bawah ?? -2, h = p.h;
-      const sama = q => q && q.h === h && (q.bawah ?? -2) === b && q.atas === p.atas;
-      if (!sama(kolom[j][i-1])) {
-        let k = i+1;
-        while (k < nx && sama(kolom[j][k])) k++;
-        const kanan = x0+k*sel, tinggi = Y0+h;
-        BA.quad([x,tinggi,z+sel], [kanan,tinggi,z+sel], [kanan,tinggi,z], [x,tinggi,z], p.atas, { skala: 0.27 });
-        if (b > 0) BA.quad([x,Y0+b,z], [kanan,Y0+b,z], [kanan,Y0+b,z+sel], [x,Y0+b,z+sel], 'kapur', uv);
-        tambahPenabrak((x+kanan)/2, Y0+(b+h)/2, z+sel/2, kanan-x, h-b, sel, 0, [1,1], b>0);
+    const lebar = nx*sel, dalam = nz*sel, lod = new THREE.LOD();
+    lod.position.set(cx,Y0,cz);
+    // Kedua tingkat detail memakai garis pantai yang sama. Hanya grid dekat yang menentukan tabrakan.
+    function buatGrid(faktor) {
+      const w = Math.ceil(nx/faktor), d = Math.ceil(nz/faktor), sx = lebar/w, sz = dalam/d;
+      const selDi = (i,j) => bentuk((i+0.5)*sx-lebar/2,(j+0.5)*sz-dalam/2);
+      const grid = Array.from({length:d},(_,j) => Array.from({length:w},(_,i) => selDi(i,j)));
+      // Kedua chunk memakai arah lereng yang sama pada sudut yang bersinggungan.
+      const arahLereng = new Int8Array((w+1)*(d+1)*3);
+      const ronaMedan = new Uint8Array(arahLereng.length);
+      const rentang = Math.max(1, Math.round(10/sx)), tinggi = (i,j) => grid[j]?.[i]?.h ?? 0;
+      for (let j=0; j<=d; j++) for (let i=0; i<=w; i++) {
+        const kiri=i-rentang, kanan=i+rentang-1, depan=j-rentang, belakang=j+rentang-1;
+        const dx=(tinggi(kiri,j)+tinggi(kiri,j-1)-tinggi(kanan,j)-tinggi(kanan,j-1))/((4*rentang-2)*sx);
+        const dz=(tinggi(i,depan)+tinggi(i-1,depan)-tinggi(i,belakang)-tinggi(i-1,belakang))/((4*rentang-2)*sz);
+        const skala=127/Math.hypot(dx,1,dz), idx=3*(j*(w+1)+i);
+        arahLereng[idx]=Math.round(dx*skala);
+        arahLereng[idx+1]=Math.round(skala);
+        arahLereng[idx+2]=Math.round(dz*skala);
+        const x=cx+i*sx-lebar/2, z=cz+j*sz-dalam/2;
+        const lembap=.62*reliefBumi(x/84,z/97,19)+.38*reliefBumi((x-.34*z)/21,(z+.23*x)/53,101);
+        ronaMedan[idx]=Math.round(232-22*lembap);
+        ronaMedan[idx+1]=Math.round(237-12*lembap);
+        ronaMedan[idx+2]=Math.round(224+14*lembap);
       }
-      const tepi = (tetangga, ax, az, bx, bz) => {
-        const gambar = (lo, hi) => {
-          if (hi <= lo) return;
-          const pita = b > 0 ? b+4 : 3, sambung = Math.min(hi, pita);
-          if (lo < sambung) muka(ax,az,bx,bz,lo,sambung,b > 0 ? 'kapur' : 'batuPasang');
-          lo = Math.max(lo,pita);
-          if (lo >= hi) return;
-          // Tanah dan lumut membungkus bibir undakan yang tertutup vegetasi.
-          // Pada dinding terjal, batuan induk masih terbaca di bawah kedua lapisan.
-          const hijau = p.atas === 'rumput' || p.atas === 'lumutHutan' || p.atas === 'lerengBara';
-          if (hijau) {
-            const tutup = h - (p.atas === 'lerengBara' ? 5 : 8);
-            const akar = tutup - (p.atas === 'lumutHutan' ? 11 : 7);
-            muka(ax,az,bx,bz,lo,Math.min(hi,akar),p.sisi);
-            muka(ax,az,bx,bz,Math.max(lo,akar),Math.min(hi,tutup),'tanahMerah');
-            muka(ax,az,bx,bz,Math.max(lo,tutup),hi,p.atas);
-          } else {
-            muka(ax,az,bx,bz,lo,hi,p.sisi);
-          }
-        };
-        if (!tetangga) gambar(b,h);
-        else {
-          gambar(b, Math.min(h,tetangga.bawah ?? -2));
-          gambar(Math.max(b,tetangga.h),h);
+      for(let j=0; j<d; j++) for(let i=0; i<w; i++) {
+        const p=grid[j][i];
+        if(!p || !['rumput','lumutHutan','lerengBara'].includes(p.atas) || p.bawah>0) continue;
+        const x=cx+(i+.5)*sx-lebar/2, z=cz+(j+.5)*sz-dalam/2;
+        const lajur=reliefBumi(x/57,z/57,75)+.24*reliefBumi(x/22,z/22,115);
+        const k=3*(j*(w+1)+i), baris=3*(w+1);
+        const ny=(arahLereng[k+1]+arahLereng[k+4]+arahLereng[k+baris+1]+arahLereng[k+baris+4])/508;
+        const curam=Math.sqrt(Math.max(0,1-ny*ny))/Math.max(.05,ny);
+        const vulkanik=p.sisi==='tanahMerah' || p.atas==='lerengBara';
+        const batas=(p.sisi==='kapur' ? .79 : vulkanik ? 1.43 : 1.12)+.39*lajur;
+        if(curam>batas) {
+          const batu=p.sisi==='tanahMerah' ? 'batuKering' : p.sisi;
+          p.atas=p.sisi=curam>batas+.27 ? batu : 'semakBatu';
         }
-      };
-      tepi(kolom[j][i-1], x,z, x,z+sel);
-      tepi(kolom[j][i+1], x+sel,z+sel, x+sel,z);
-      tepi(kolom[j-1]?.[i], x+sel,z, x,z);
-      tepi(kolom[j+1]?.[i], x,z+sel, x+sel,z+sel);
+      }
+      const pakai = new Uint8Array(w*d), grup = new THREE.Group();
+      const uv = { skala:0.57, _jadi:true };
+      const sisiChunk = faktor === 1 && Math.max(lebar,dalam)>700 ? Math.max(24,Math.ceil(340/sel)) : Math.max(w,d);
+      for (let j0=0; j0<d; j0+=sisiChunk) for (let i0=0; i0<w; i0+=sisiChunk) {
+        const B = new Pembangun(AA,K.dunia), j1 = Math.min(d,j0+sisiChunk), i1 = Math.min(w,i0+sisiChunk);
+        for (let j=j0; j<j1; j++) for (let i=i0; i<i1; i++) {
+          const p = grid[j][i];
+          if (!p) continue;
+          const x=i*sx-lebar/2, z=j*sz-dalam/2, b=p.bawah ?? -2, h=p.h;
+          const hijau=p.atas==='rumput' || p.atas==='lumutHutan' || p.atas==='lerengBara';
+          const sama = (a,n) => a && !pakai[n] && a.h===h && (a.bawah ?? -2)===b && a.atas===p.atas;
+          if (!pakai[j*w+i]) {
+            let k=i+1, m=j+1;
+            while(k<i1 && sama(grid[j][k],j*w+k)) k++;
+            cariPersegi: while(m<j1) {
+              for(let n=i;n<k;n++) if(!sama(grid[m][n],m*w+n)) break cariPersegi;
+              m++;
+            }
+            for(let n=j;n<m;n++) pakai.fill(1,n*w+i,n*w+k);
+            const kanan=k*sx-lebar/2, ujung=m*sz-dalam/2;
+            B.quad([x,h,ujung],[kanan,h,ujung],[kanan,h,z],[x,h,z],p.atas,{skala:0.42});
+            if(b>0) B.quad([x,b,z],[kanan,b,z],[kanan,b,ujung],[x,b,ujung],'kapur',uv);
+            if(faktor===1) tambahPenabrak(cx+(x+kanan)/2,Y0+(b+h)/2,cz+(z+ujung)/2,kanan-x,h-b,ujung-z,0,[1,1],b>0);
+          }
+          const sisi = (sebelah,ax,az,bx,bz) => {
+            const muka = (lo,hi,ubin) => {
+              if(hi>lo) B.quad([ax,lo,az],[bx,lo,bz],[bx,hi,bz],[ax,hi,az],ubin,uv);
+            };
+            const potong = (lo,hi) => {
+              if(hi<=lo) return;
+              const pita=b>0 ? b+2.4 : 1.1;
+              muka(lo,Math.min(hi,pita),b>0 ? 'kapur' : p.atas==='pasir' ? 'pasir' : 'batuPasang');
+              lo=Math.max(lo,pita);
+              if(hi<=lo) return;
+              // Punggung hijau menyatu antarvoxel. Batu tersingkap pada patahan yang tinggi.
+              if(hijau) {
+                if(p.tutupVegetasi===undefined) {
+                  const kantong=reliefBumi((cx+x)/44,(cz+z)/44,74);
+                  p.tutupVegetasi=(2.1+.63*kantong)*Math.min(sx,sz)+2;
+                }
+                const akar=h-p.tutupVegetasi;
+                muka(lo,Math.min(hi,akar),p.sisi);
+                muka(Math.max(lo,akar),hi,p.atas);
+              } else muka(lo,hi,p.atas==='pasir' && hi-lo<4 ? 'pasir' : p.sisi);
+            };
+            if(sebelah) {
+              potong(b,Math.min(h,sebelah.bawah ?? -2));
+              potong(Math.max(b,sebelah.h),h);
+            } else potong(b,h);
+          };
+          sisi(grid[j][i-1],x,z,x,z+sz);
+          sisi(grid[j][i+1],x+sx,z+sz,x+sx,z);
+          sisi(grid[j-1]?.[i],x+sx,z,x,z);
+          sisi(grid[j+1]?.[i],x,z+sz,x+sx,z+sz);
+        }
+        if(B.i.length) {
+          const mesh=B.bangun(matMedan), normal=new Int8Array(B.p.length), warna=new Uint8Array(B.p.length);
+          for(let t=0; t<normal.length; t+=3) {
+            const i=clamp(Math.round((B.p[t]+lebar/2)/sx),0,w);
+            const j=clamp(Math.round((B.p[t+2]+dalam/2)/sz),0,d);
+            const k=3*(j*(w+1)+i);
+            normal[t]=arahLereng[k]; normal[t+1]=arahLereng[k+1]; normal[t+2]=arahLereng[k+2];
+            warna[t]=ronaMedan[k]; warna[t+1]=ronaMedan[k+1]; warna[t+2]=ronaMedan[k+2];
+          }
+          mesh.geometry.setAttribute('normalLereng',new THREE.BufferAttribute(normal,3,true));
+          mesh.geometry.setAttribute('color',new THREE.BufferAttribute(warna,3,true));
+          grup.add(mesh);
+        }
+      }
+      return grup;
     }
+    lod.addLevel(buatGrid(1),0);
+    if(Math.max(nx,nz)>35) {
+      const jarak = Math.hypot(lebar,dalam)/2 + Math.max(650,sel*110);
+      lod.addLevel(buatGrid(nx>170 ? 3 : 2),jarak,0.1);
+    }
+    scene.add(lod);
   }
   // tinggi permukaan satu penabrak di (x, z); -Infinity bila di luar tapaknya. Sisi yang meruncing ikut dihitung.
   function permukaan(p, x, z) {
@@ -1157,53 +1346,192 @@ function buatGame(THREE, renderer) {
   }
 
   const buih = (x, z, w, d, rot, i) => BF[i % 2].kotak(x, Y0 + 0.09 + (i % 2) * 0.03, z, w, 0.02, d, { atas: { n: 'u', pas: true } }, { rot: [0, rot, 0] });
-  function pohon(x, y, z, s, gaya = rA() < 0.5 ? -1 : 1) {
-    const daun = { sisi: 'daun', atas: 'daun', bawah: 'daun' }, uv = { skala: 0.52 };
-    // Pangkal sedikit masuk tanah; tajuk bawah bertumpu pada ujung batang.
-    BA.kotak(x, y+1.03*s, z, 0.76*s, 2.36*s, 0.76*s, 'batang');
-    BA.kotak(x, y+2.55*s, z, 2.6*s, 1.35*s, 2.1*s, daun, {uv});
-    BA.kotak(x+gaya*0.5*s, y+3.55*s, z-0.28*s, 1.6*s, 0.86*s, 1.55*s, daun, {uv});
-    BA.kotak(x-gaya*0.83*s, y+2.8*s, z+0.63*s, 1.22*s, 0.85*s, 1.55*s, daun, {uv});
+  const rumpun = new Map();
+  const tapakVegetasi = new Map(), daunHidup = pengacak(80615);
+  function catatPohon(jenis,x,y,z,s) {
+    // Tajuk boleh bersinggungan, tetapi setiap batang mendapat ruang untuk tumbuh.
+    const ukuran=16, i=Math.floor(x/ukuran), j=Math.floor(z/ukuran), jarak=s*(jenis==='palem' ? 0.75 : 1.02);
+    for(let v=j-1;v<=j+1;v++) for(let u=i-1;u<=i+1;u++) {
+      for(const t of tapakVegetasi.get(kunciPetak(u,v)) || kosong) {
+        if((x-t.x)**2+(z-t.z)**2 < (jarak+t.jarak)**2) return false;
+      }
+    }
+    const keyTapak=kunciPetak(i,j);
+    if(!tapakVegetasi.has(keyTapak)) tapakVegetasi.set(keyTapak,[]);
+    tapakVegetasi.get(keyTapak).push({x,z,jarak});
+    const angin=0.44*reliefBumi(x/130,z/130,797);
+    const arah=jenis==='palem' ? angin+0.74+(daunHidup()-0.5)*1.6 : daunHidup()*Math.PI*2;
+    const lebar=(0.82+daunHidup()*0.44)*(jenis==='ketapang' ? 1.17 : 1);
+    const tinggi=(0.84+daunHidup()*0.36)*(jenis==='ketapang' ? 0.91 : 1);
+    const hangat=daunHidup()*0.85+0.15*reliefBumi(x/65,z/65,13), cerah=0.91+0.17*daunHidup();
+    const warna=[cerah*(0.91+0.30*hangat),cerah*(0.99+0.08*hangat),cerah*(1.09-0.30*hangat)];
+    const gx=Math.floor(x/640), gz=Math.floor(z/640), key=jenis+','+gx+','+gz;
+    if(!rumpun.has(key)) rumpun.set(key,{jenis,pohon:[]});
+    rumpun.get(key).pohon.push({x,y,z,s,arah,lebar,tinggi,warna});
+    return true;
   }
-  function palem(x, y, z, s) {
-    const arah = rA() < 0.5 ? -1 : 1;
-    BA.kotak(x, y+1.35*s, z, 0.63*s, 2.7*s, 0.63*s, 'batang');
-    const tx = x + arah*0.38*s, ty = y + 4.7*s;
-    BA.kotak(tx, y+3.6*s, z, 0.58*s, 2.2*s, 0.58*s, 'batang');
-    BA.kotak(tx, ty, z, 0.95*s, 0.65*s, 0.95*s, 'daun');
-    for (const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-      BA.kotak(tx+dx*0.97*s, ty-0.12*s, z+dz*0.97*s, (dx ? 1.4 : 0.81)*s, 0.39*s, (dz ? 1.4 : 0.81)*s, 'daunPalem');
-      BA.kotak(tx+dx*1.82*s, ty-0.51*s, z+dz*1.82*s, (dx ? 0.94 : 0.61)*s, 0.42*s, (dz ? 0.94 : 0.61)*s, 'daunPalem');
+  function tanamRumpun(cx,cz,rx,rz,jumlah,{skala=2,palem=0,min=4,maks=Infinity,sudut=0}={}) {
+    const cos=Math.cos(sudut), sin=Math.sin(sudut);
+    let tumbuh=0;
+    for(let i=0;i<jumlah*7 && tumbuh<jumlah;i++) {
+      const a=daunHidup()*Math.PI*2, r=Math.sqrt(daunHidup());
+      const u=Math.cos(a)*r*rx, v=Math.sin(a)*r*rz;
+      const x=cx+u*cos-v*sin, z=cz+u*sin+v*cos;
+      const y=tinggiTanah(x,z,Y0);
+      if(y<Y0+min || y>Y0+maks || tinggiTanah(x,z)>y+1) continue;
+      const jenis=daunHidup()<palem ? 'palem' : daunHidup()<0.46 ? 'ketapang' : 'rimba';
+      const s=skala*(0.72+daunHidup()*0.58+0.18*(1-r)), kaki=s*0.32;
+      const tapak=[y,tinggiTanah(x-kaki,z-kaki,Y0),tinggiTanah(x+kaki,z-kaki,Y0),
+        tinggiTanah(x-kaki,z+kaki,Y0),tinggiTanah(x+kaki,z+kaki,Y0)];
+      const dasar=Math.min(...tapak);
+      if(dasar<=Y0+0.75 || Math.max(...tapak)-dasar>s*0.93) continue;
+      // Undakan sempit pada dinding karst terkadang cukup datar tepat di bawah batang.
+      // Periksa juga bentang tajuk agar pohon besar tumbuh di lereng yang memang menopangnya.
+      const jangkau=Math.max(6.0,2.1*s);
+      const barat=tinggiTanah(x-jangkau,z,Y0), timur=tinggiTanah(x+jangkau,z,Y0);
+      const utara=tinggiTanah(x,z-jangkau,Y0), selatan=tinggiTanah(x,z+jangkau,Y0);
+      if(y-Math.min(barat,timur,utara,selatan)>1.16*jangkau ||
+        Math.hypot(timur-barat,selatan-utara)>1.80*jangkau) continue;
+      if(catatPohon(jenis,x,dasar-0.15,z,s)) tumbuh++;
+    }
+  }
+  function modelRimba(jenis,level) {
+    const B=new Pembangun(AA,K.dunia), uv={pas:true}, n=[13,6,3][level], sisi=4.9/n;
+    const ketapang=jenis==='ketapang';
+    const daun=ketapang ? 'daunKetapang' : 'daun', pucuk=ketapang ? 'tajukKetapang' : 'pucukDaun';
+    const gugus=ketapang
+      ? [[-0.80,2.68,0.44,1.45,0.64,1.16],[0.86,2.85,-0.05,1.36,0.77,1.24],[-0.20,3.68,-0.60,1.43,0.82,1.26],[0.30,3.60,0.41,1.32,0.70,1.07]]
+      : [[-0.51,2.68,0.30,1.09,0.92,0.98],[0.53,3.38,-0.35,1.16,1.33,1.06],[-0.47,4.13,-0.14,1.02,1.08,0.90],[0.20,4.78,0.42,0.82,0.79,0.78]];
+    B.kotak(0,1.15,0,0.50,2.60,0.54,'batang');
+    if(level===0) {
+      for(const [u,v] of [[-0.46,0.32],[0.46,-0.28]]) {
+        B.kotak(u*0.5,2.04,v*0.5,0.35+Math.abs(u),0.39,0.33+Math.abs(v),'batang');
+        B.kotak(u,2.35,v,0.31,0.60,0.34,'batang');
+      }
+    }
+    const tajuk=Array.from({length:n},(_,j) => Array.from({length:n},(_,i) => {
+      const x=(i+0.5-n/2)*sisi,z=(j+0.5-n/2)*sisi;
+      let bawah=Infinity,atas=-Infinity;
+      for(const [px,py,pz,rx,ry,rz] of gugus) {
+        const rem=1-((x-px)/rx)**2-((z-pz)/rz)**2;
+        if(rem<=0) continue;
+        const jari=ry*Math.sqrt(rem);
+        bawah=Math.min(bawah,py-jari); atas=Math.max(atas,py+jari);
+      }
+      if(atas<=bawah) return;
+      const step=[0.24,0.42,0.65][level];
+      return [Math.floor(bawah/step)*step,Math.ceil(atas/step)*step];
+    }));
+    for(let j=0;j<n;j++) for(let i=0;i<n;i++) {
+      const p=tajuk[j][i]; if(!p) continue;
+      const x=(i-n/2)*sisi,z=(j-n/2)*sisi,X=x+sisi,Z=z+sisi,[a,h]=p;
+      B.quad([x,h,Z],[X,h,Z],[X,h,z],[x,h,z],h>(ketapang ? 3.28 : 4.05) ? pucuk : daun,uv);
+      B.quad([x,a,z],[X,a,z],[X,a,Z],[x,a,Z],daun,uv);
+      const tepi=(p,ax,az,bx,bz) => {
+        const isi=(lo,hi) => { if(hi>lo) B.quad([ax,lo,az],[bx,lo,bz],[bx,hi,bz],[ax,hi,az],daun,uv); };
+        if(!p) isi(a,h);
+        else { isi(a,Math.min(h,p[0])); isi(Math.max(a,p[1]),h); }
+      };
+      tepi(tajuk[j][i-1],x,z,x,Z); tepi(tajuk[j][i+1],X,Z,X,z);
+      tepi(tajuk[j-1]?.[i],X,z,x,z); tepi(tajuk[j+1]?.[i],x,Z,X,Z);
+    }
+    return B.geometri();
+  }
+  function modelPalem(level) {
+    const B=new Pembangun(AA,K.dunia), ruas=[9,4,2][level], panjang=4.9/ruas;
+    for(let i=0;i<ruas;i++) {
+      const f=(i+0.5)/ruas, w=0.62-0.31*f;
+      B.kotak(1.05*f*f,(i+0.5)*panjang-0.06,0,w,panjang+0.13,w,'batang');
+    }
+    const daun=[9,7,5][level], langkah=[7,4,2][level];
+    for(let j=0;j<daun;j++) {
+      const a=j*Math.PI*2/daun+0.14*Math.sin(j*2.1), dx=Math.cos(a), dz=Math.sin(a), l=2.05+0.48*Math.sin(j*2)+0.33*dx;
+      for(let k=0;k<langkah;k++) {
+        const f=(k+0.5)/langkah, w=0.14+0.37*Math.sin(f*Math.PI);
+        const x=1.05+Math.round((dx*l*f+0.34*f*f)*8)/8, z=Math.round(dz*l*f*8)/8;
+        const y=4.86+Math.round(((0.61+0.19*Math.sin(j))*Math.sin(Math.PI*f)-(0.74+0.26*Math.cos(j))*f*f)*8)/8;
+        B.kotak(x,y,z,Math.abs(dx)*l/langkah+w,0.16+level*0.09,Math.abs(dz)*l/langkah+w,j%3===1 ? 'pucukDaun' : 'daunPalem');
+      }
+    }
+    return B.geometri();
+  }
+  function pasangVegetasi() {
+    const model={}, pose=new THREE.Object3D(), warna=new THREE.Color();
+    for(const jenis of ['rimba','ketapang','palem']) {
+      model[jenis]=[0,1,2].map(level => jenis==='palem' ? modelPalem(level) : modelRimba(jenis,level));
+    }
+    for(const r of rumpun.values()) {
+      // Fondasi bangunan yang dipasang setelah terrain harus tetap bebas dari batang.
+      r.pohon=r.pohon.filter(t => tinggiTanah(t.x,t.z)-t.y<t.s*0.93+0.55);
+      if(!r.pohon.length) continue;
+      const lod=new THREE.LOD();
+      const pusatX=r.pohon.reduce((a,t)=>a+t.x,0)/r.pohon.length, pusatZ=r.pohon.reduce((a,t)=>a+t.z,0)/r.pohon.length;
+      lod.position.set(pusatX,0,pusatZ);
+      for(let level=0;level<3;level++) {
+        const mesh=new THREE.InstancedMesh(model[r.jenis][level],matAlam,r.pohon.length);
+        r.pohon.forEach((t,i) => {
+          pose.position.set(t.x-pusatX,t.y,t.z-pusatZ); pose.rotation.y=t.arah; pose.scale.set(t.s*t.lebar,t.s*t.tinggi,t.s*t.lebar);
+          pose.updateMatrix(); mesh.setMatrixAt(i,pose.matrix);
+          mesh.setColorAt(i,warna.setRGB(...t.warna));
+        });
+        mesh.instanceMatrix.needsUpdate=true; mesh.computeBoundingSphere();
+        lod.addLevel(mesh,[0,430,1060][level],0.13);
+      }
+      lod.addLevel(new THREE.Group(),2900,0.12);
+      scene.add(lod);
     }
   }
   function pulau(cx, cz, R, T, o = {}) {
-    const n = o.jauh ? 15 : 23, sel = 2.2*R/n, fase = (cx - cz)*0.02;
+    const n = o.jauh ? 65 : 83, sel = 2.65*R/n, benih = cx*7 + cz*11;
+    const acak = pengacak(Math.abs(benih)+31), arah = acak()*Math.PI*2;
+    const ca = Math.cos(arah), sa = Math.sin(arah), pipih = 0.62 + 0.23*acak();
+    const letakTeluk = 0.12 + 0.37*acak(), letakBukit = -0.36 + 0.57*acak();
     medanBlok(cx, cz, n, n, sel, (u,v) => {
-      const a = Math.atan2(v,u), tepi = 0.9 + 0.1*Math.sin(3*a + fase) + 0.06*Math.cos(5*a);
-      const dalam = 1 - Math.hypot(u/R, v/(R*0.79))/tepi;
-      if (dalam <= 0) return;
-      const tinggi = T * dalam**(o.tebing ? 0.65 : 1.12);
-      const langkah = Math.max(2, Math.round(T/9)), h = 2 + langkah*Math.floor(tinggi/langkah);
-      return {h, atas: o.jauh ? 'jauhAtas' : h < 6 ? 'pasir' : 'rumput', sisi: o.jauh ? 'jauhSisi' : 'tebing'};
+      const x = (u*ca+v*sa)/R, z = (v*ca-u*sa)/(R*pipih);
+      const batuan = reliefBumi(x*2.4,z*2.4,benih), retak = reliefBumi(x*7,z*7,benih+1);
+      const teluk = 0.32*halus(1,0,Math.hypot((x-letakTeluk)/0.54,(z+0.86)/0.64));
+      const pantai = 1-Math.hypot(x,z+0.13*Math.sin(3.6*x))+0.17*batuan+0.048*retak-teluk;
+      if (pantai<=0) return;
+      // Singkapan curam berada di ujung berbatu. Di balik punggungnya pasir membentuk teluk landai.
+      const singkap = halus(-0.45,0.47,z-0.48*x+0.36*batuan+(o.tebing ? 0.36 : 0));
+      const punggung = halus(1,0,Math.hypot((x-letakBukit)/0.85,(z-0.18-0.16*Math.sin(4*x)) / 0.50));
+      const bukit = halus(1,0,Math.hypot((x-0.53)/0.42,(z+0.08)/0.46));
+      const kaki = halus(0,0.29-0.235*singkap,pantai);
+      const relief = 0.18+0.18*singkap+0.26*halus(0,0.62,pantai)+0.38*punggung+0.19*bukit+0.12*batuan+0.042*retak;
+      const h = Math.max(0.5,Math.round((0.5+T*relief*kaki)*2)/2);
+      const dangkalan = pantai < 0.08+0.19*(1-singkap)+0.035*batuan;
+      const atas = dangkalan && singkap<0.54 ? 'pasir' : singkap>0.70 && pantai<0.21+0.10*batuan ? 'batuKering' : o.jauh ? 'jauhAtas' : 'rumput';
+      return {h, atas, sisi:atas==='pasir' ? 'pasir' : o.jauh ? 'jauhSisi' : 'tebing'};
     });
-    if (!o.jauh) for (let i = 0; i < (o.pohon ?? 16); i++) {
-      const x = cx + (rA()-0.5)*R*1.35, z = cz + (rA()-0.5)*R, y = tinggiTanah(x,z);
-      if (y > Y0+5) (o.palem ? palem : pohon)(x,y-0.1,z,1.8+rA());
+    const bibit=pengacak(Math.round(cx*31+cz)), kantong=o.jauh ? 4 : 6;
+    for(let i=0;i<kantong;i++) {
+      const a=bibit()*Math.PI*2, r=(0.20+0.50*bibit())*R;
+      const x=cx+r*Math.cos(a), z=cz+r*0.73*Math.sin(a);
+      tanamRumpun(x,z,R*(0.10+bibit()*0.17),R*(0.10+bibit()*0.11),o.jauh ? 4 : 7,{
+        skala:2.1+0.85*bibit(),palem:o.palem ? 0.72 : 0.08,min:3.3,sudut:a+0.8
+      });
     }
   }
-  function karang(x, z, s, i) {
-    for (const [dx,dz,w,h] of [[0,0,2.6,1.8], [1.35,0.63,1.45,0.82], [-1.05,-0.72,1.6,1.16]]) {
-      daratan(x+dx*s,Y0+(h*s-0.4)/2,z+dz*s,w*s,h*s+0.4,w*s*0.82,{sisi:'karang',atas:'batuKering'});
-    }
-    buih(x, z, 6.4*s, 5.4*s, 0, i);
+  function karang(x,z,s,i) {
+    medanBlok(x,z,17,13,0.34*s,(u,v) => {
+      const bukit=(a,b,w,d,h) => h*Math.sqrt(Math.max(0,1-((u/s-a)/w)**2-((v/s-b)/d)**2));
+      const t=Math.max(bukit(0,0,1.55,1.17,1.85),bukit(1.3,0.6,0.95,0.73,0.95),bukit(-1,-0.65,0.94,0.8,1.14));
+      if(t<=0) return;
+      return {h:Math.max(0.15,Math.round(t*5)/5)*s,sisi:'karang',atas:'batuKering'};
+    });
+    buih(x,z,6.4*s,5.4*s,0,i);
   }
-  function tonggak(x, z, w, t, d, i = 0) {
-    const sel = Math.min(w,d)/5;
-    medanBlok(x,z,9,9,sel,(u,v) => {
-      const jarak = Math.max(Math.abs(u)/w, Math.abs(v)/d);
-      if (jarak > 0.78) return;
-      const h = jarak > 0.57 ? 2 : jarak > 0.42 ? t*0.31 : jarak > 0.24 ? t*0.76 : t;
-      return {h, sisi:'tebing', atas:h > t*0.72 ? 'rumput' : 'batuKering'};
+  function tonggak(x,z,w,t,d,i=0) {
+    const sel=Math.min(w,d)/17, n=2*Math.ceil(Math.max(w,d)/sel)+1;
+    medanBlok(x,z,n,n,sel,(u,v) => {
+      const f=u/w, g=v/d, batu=reliefBumi(f*3.1,g*3.1,78+i);
+      const kaki=0.78-Math.hypot(f+0.16*g,g)+0.12*batu;
+      if(kaki<=0) return;
+      const pilar=0.53-Math.hypot(f+0.14,g-0.08+0.14*f)+0.11*batu;
+      const bahu=0.45-Math.hypot((f-0.27)*1.2,g+0.06)+0.10*batu;
+      const tubuh=0.14*halus(0,0.18,kaki)+Math.max(0.81*halus(0,0.18,pilar),0.48*halus(0,0.15,bahu));
+      const h=Math.max(0.5,Math.round((1+t*tubuh+2*batu)*2)/2);
+      return {h,sisi:'tebing',atas:pilar>0.23 && batu>-0.27 ? 'rumput' : 'batuKering'};
     });
     buih(x,z,w*1.65,d*1.65,0,i);
   }
@@ -1213,17 +1541,27 @@ function buatGame(THREE, renderer) {
      Ukuran dunia diturunkan dari pesawat: laju jelajah 58 satuan/detik, bentang sayap 4,6,
      radius belok sekitar 55-80. Penanda pertama berjarak 24-30 detik dari pangkalan.
      ===================================================================== */
-  const D2R = Math.PI / 180, uvB = { skala: 0.6 };
-  function atapBalok(b, x, bawah, z, lebar, tinggi, panjang, ubin, rot = 0) {
-    const lapis = tinggi / 3, arah = { rot: [0, rot, 0], uv: { pas: true } };
-    for (let i = 0; i < 3; i++) {
-      b.kotak(x, bawah + (i + 0.5) * lapis, z, lebar * (1 - i * 0.31), lapis, panjang,
-        { sisi: ubin, atas: ubin, bawah: i === 0 ? ubin : null }, arah);
+  const D2R = Math.PI / 180;
+  function atapBalok(b, x, bawah, z, lebar, tinggi, panjang, ubin, rot = 0, tumbukan = false) {
+    const jumlah = Math.max(7, Math.ceil(lebar / 0.95)), langkah = tinggi / jumlah;
+    const sin = Math.sin(rot), cos = Math.cos(rot), arah = { rot: [0, rot, 0], uv: { pas: true } };
+    const separuh = i => lebar / 2 * (1 - 0.93 * i / (jumlah - 1));
+    const muka = (u, t, v) => [x + u * cos + v * sin, t, z - u * sin + v * cos];
+    for (let i = 0; i < jumlah; i++) {
+      const h = separuh(i), sisa = i + 1 === jumlah ? 0 : separuh(i + 1);
+      const y = bawah + (i + 1) * langkah, tengah = y - langkah / 2, d = panjang / 2;
+      const sisi = { n: ubin, pas: true }, pelana = i === 0 ? sisi : { n: 'papanRumah', skala: 0.28 };
+      b.kotak(x, tengah, z, h * 2, langkah, panjang, { px: sisi, nx: sisi, pz: pelana, nz: pelana, bawah: i === 0 ? ubin : null }, arah);
+      // Hanya undakan genteng yang terbuka digambar. Sisi kayu mengisi segitiga di kedua ujung atap.
+      const bidang = (u0, u1) => b.quad(muka(u0,y,-d), muka(u0,y,d), muka(u1,y,d), muka(u1,y,-d), ubin, { pas: true });
+      if (sisa === 0) bidang(-h, h);
+      else { bidang(-h, -sisa); bidang(sisa, h); }
+      if (tumbukan) tambahPenabrak(x, tengah, z, h * 2, langkah, panjang, rot, [1,1], true);
     }
   }
   const atapWarna = dasar => q => {
-    q.isi(dasar).k(0, 21, 52, 3, campur(dasar, 0x432e49, 0.32));
-    for (let x = 0; x < 52; x += 14) q.k(x, 0, 2, 21, campur(dasar, 0x422f43, 0.18));
+    q.isi(dasar).k(0, 23, 52, 1, campur(dasar, 0x432e49, 0.18));
+    for (let x = 0; x < 52; x += 10) q.k(x, 0, 1, 23, campur(dasar, 0x422f43, 0.13)).k(x + 1, 1, 1, 20, campur(dasar, 0xffe5c5, 0.14));
   };
   AS.baru('atapBiru', 52, 24, atapWarna(0x3f6fae)).baru('atapMerah', 52, 24, atapWarna(0xc8463e)).baru('atapKuning', 52, 24, atapWarna(0xd9a84a));
   AS.baru('merahJembatan', 32, 32, (q) => {
@@ -1269,37 +1607,10 @@ function buatGame(THREE, renderer) {
   texAlam.needsUpdate = true;
 
   // laut dangkal (toska), laguna (hijau terang), dan alur buih yang mengalir
-  const petak = (dasar, terang, redup, benih) => kanvasAlfa(64, 64, (set) => {
-    const r = pengacak(benih);
-    for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) set(x, y, dasar, 255);
-    for (let i = 0; i < 150; i++) { const x = r() * 64 | 0, y = r() * 64 | 0, w = 2 + (r() * 5 | 0), c = r() < 0.6 ? terang : redup; for (let k = 0; k < w; k++) set((x + k) % 64, y, c, 255); }
-  });
-  const kvDangkal = petak(0x359f9c, 0x75cbb9, 0x388290, 41), kvLaguna = petak(0x4bc598, 0x9bd5ad, 0x40aa98, 42);
-  const BD = { p: [], u: [], warna: [], i: [] }, BL = { p: [], u: [], warna: [], i: [] };
-  function hamparanAir(data, x, z, w, d, rot, tinggi) {
-    const pusat = data.p.length / 3, segmen = 36, c = Math.cos(rot), s = Math.sin(rot);
-    const fase = x * 0.031 + z * 0.013;
-    const titik = (px, pz, alfa) => {
-      data.p.push(px, tinggi, pz);
-      data.u.push(px / 18, -pz / 18);
-      data.warna.push(1, 1, 1, alfa);
-    };
-    titik(x, z, 1);
-    const cincin = [[0.31, 0.98], [0.56, 0.81], [0.75, 0.48], [0.89, 0.15], [1, 0]];
-    for (let j = 0; j < cincin.length; j++) {
-      const [radius, alfa] = cincin[j], awal = data.p.length / 3;
-      for (let k = 0; k < segmen; k++) {
-        const a = 2 * Math.PI * k / segmen;
-        const batas = 1 + 0.10 * Math.sin(a * 3 + fase) + 0.07 * Math.sin(a * 5 - fase) + 0.045 * Math.cos(a * 8 + fase);
-        const lx = Math.cos(a) * w * 0.5 * radius * batas, lz = Math.sin(a) * d * 0.5 * radius * batas;
-        titik(x + lx * c + lz * s, z - lx * s + lz * c, alfa);
-        const ini = awal + k, sesudah = awal + (k + 1) % segmen;
-        if (j === 0) data.i.push(pusat, sesudah, ini);
-        else data.i.push(ini - segmen, sesudah - segmen, ini, ini, sesudah - segmen, sesudah);
-      }
-    }
+  const hamparan = [];
+  function dangkal(x, z, w, d, rot = 0, laguna = false) {
+    hamparan.push({ x, z, w, d, rot, laguna });
   }
-  const dangkal = (x, z, w, d, rot = 0) => hamparanAir(BD, x, z, w, d, rot, Y0 + 0.05);
   const texAlur = tekstur(kanvasAlfa(64, 128, (set) => {
     const r = pengacak(43);
     for (let i = 0; i < 170; i++) {
@@ -1325,30 +1636,28 @@ function buatGame(THREE, renderer) {
 
   /* ---------- Pangkalan Tanjung Senja: landasan di tepi laut, tanjung berbukit di belakang titik lepas landas ---------- */
   const LD = CFG.landasan, YL = Y0 + LD.tinggi;
-  medanBlok(-12,24,25,49,6,(u,v) => {
-    const x = u-12, z = v+24;
-    // Dataran landasan dan fondasi hanggar rata sampai ke tepi perkerasan.
-    const apron = Math.max(Math.abs(x)/25,Math.abs(z+5)/98);
-    const tanjung = Math.hypot((x+5)/39,(z-8)/129);
-    const teluk = Math.hypot((x-32)/23,(z-32)/47);
-    const bukit = Math.hypot((x+49)/39,(z-118)/50);
-    if (apron>1 && tanjung>1 && teluk>1 && bukit>1) return;
-    let h = apron <= 1 ? LD.tinggi : tanjung < 0.95 ? 6 : 2;
-    if (bukit < 1) h = Math.max(h,4+4*Math.round(9*(1-bukit)));
-    if (teluk < 1 && apron > 1) h = teluk < 0.72 ? 4 : 2;
-    return {h, atas:h<=4 ? 'pasir' : 'rumput', sisi:'tebing'};
+  medanBlok(-14,25,91,163,2,(u,v) => {
+    const x=u-14, z=v+25, apron=Math.max(Math.abs(x)-25,Math.abs(z+5)-98);
+    if (apron<=0) return {h:LD.tinggi, atas:'rumput', sisi:'tebing'};
+    const batuan=reliefBumi(x/32,z/38,31), retak=reliefBumi(x/10,z/13,32);
+    const tanjung=43*(1-Math.hypot((x+7)/45,(z-5)/134));
+    const gumuk=24*(1-Math.hypot((x-34)/26,(z-39)/54));
+    const bukit=39*(1-Math.hypot((x+50)/39,(z-113)/54));
+    const dalam=Math.max(9-apron,tanjung,gumuk,bukit)+5*batuan+1.8*retak;
+    if (dalam<=0) return;
+    const karang=halus(6,-44,x+13*batuan+7*Math.sin(z/30));
+    const punggung=halus(1,0,Math.hypot((x+52+8*Math.sin(z/28))/26,(z-115)/48));
+    const alami=0.6+halus(0,17-13*karang,dalam)*(6+5*karang+28*punggung+3*batuan);
+    const campurApron=halus(0,13,apron);
+    const h=Math.max(0.5,Math.round(2*(LD.tinggi+(alami-LD.tinggi)*campurApron))/2);
+    const atas=dalam<11+6*batuan && karang<0.64 ? 'pasir' : karang>0.73 && dalam<7+2*retak ? 'batuKering' : 'rumput';
+    return {h,atas,sisi:atas==='pasir' ? 'pasir' : 'tebing'};
   });
   buih(0, 12, 78, 272, 0, 0);
   buih(37, 34, 34, 70, -0.1, 1);
   dangkal(4, 10, 190, 380, 0.05);
-  for (let i = 0; i < 12; i++) {
-    const x = -50+(rA()-0.5)*36, z = 118+(rA()-0.5)*58;
-    pohon(x,tinggiTanah(x,z)-0.1,z,1.55+rA()*0.75);
-  }
-  for (let i = 0; i < 5; i++) {
-    const x = 37+(rA()-0.5)*14, z = 34+(rA()-0.5)*44;
-    palem(x,tinggiTanah(x,z)-0.1,z,1.3+rA()*0.5);
-  }
+  tanamRumpun(-52,115,23,33,18,{skala:2.0,sudut:0.30});
+  tanamRumpun(37,34,9,23,6,{skala:1.75,palem:0.92,min:2});
   BA.kotak(LD.x, YL + 0.06, LD.z, LD.lebar, 0.12, LD.panjang, { atas: 'aspal' });                        // landasan pacu
   for (const s of [-1, 1]) BA.kotak(LD.x, YL + 0.08, LD.z + s * (LD.panjang / 2 - 3), LD.lebar, 0.16, 4, { atas: { n: 'ambang', pas: true } });
   for (const s of [-1, 1]) BA.kotak(LD.x, YL + 0.08, LD.z + s * (LD.panjang / 2 - 19), LD.lebar, 0.16, 6.5, { atas: { n: 'zonaSentuh', pas: true } });
@@ -1384,47 +1693,65 @@ function buatGame(THREE, renderer) {
 
   /* ---------- Pulau Suar Lama dan garis pantai yang menuntun pulang ke landasan ---------- */
   const LX = CFG.suar.x, LZ = CFG.suar.z, HB = CFG.suar.tinggiBukit, SKS = 3, DYS = HB - 3.2 * SKS;
-  medanBlok(LX,LZ,33,29,8,(u,v) => {
-    const a = Math.atan2(v,u), r = Math.hypot(u/119,v/96)*(1+0.07*Math.sin(3*a));
-    if (r>1.05) return;
-    const h = r < 0.36 ? HB : r>0.95 ? 3 : 4+6*Math.floor(7*(1.02-r)/0.66);
-    return {h, atas:h<=4 ? 'pasir' : 'rumput', sisi:'tebing'};
+  medanBlok(LX,LZ,111,91,3,(u,v) => {
+    const batuan=reliefBumi(u/42,v/39,55), pecah=reliefBumi(u/16,v/15,56);
+    const darat=92*(1-Math.hypot((u+10)/114,(v+6)/83));
+    const tanjung=39*(1-Math.hypot((u+84)/62,(v-24)/34));
+    const pasir=43*(1-Math.hypot((u-75)/64,(v+8)/48));
+    const teluk=21*halus(1,0,Math.hypot((u-35)/49,(v-75)/39));
+    const dalam=Math.max(darat,tanjung,pasir)+8*batuan+3*pecah-teluk;
+    if (dalam<=0) return;
+    // Mercusuar dan rumah penjaga berdiri di satu bahu, di atas tanjung yang terjal ke arah barat.
+    const karang=halus(36,-56,u+0.28*v+14*batuan);
+    const alur=v-14+0.26*u-8*Math.sin(u/27);
+    const punggung=halus(52,2,Math.abs(alur)) * halus(72,-7,u);
+    const alami=1+halus(0,31-24*karang,dalam)*(7+12*karang+16*punggung+13*halus(2,62,dalam)+4*batuan+2*pecah);
+    const fondasi=halus(0,30,Math.max(Math.abs(u-7)-19,Math.abs(v)-12));
+    const h=Math.max(0.5,Math.round((HB+(alami-HB)*fondasi)*2)/2);
+    const atas=dalam<14+6*batuan && karang<0.54 ? 'pasir' : karang>0.54 && dalam<10+7*batuan ? 'batuKering' : 'rumput';
+    return {h,atas,sisi:atas==='pasir' ? 'pasir' : 'tebing'};
   });
   buih(LX, LZ, 270, 232, 0.3, 0);
   dangkal(LX + 20, LZ + 30, 460, 400, 0.3);
-  for (let i = 0; i < 9; i++) {
-    const a = rA()*6.28, x = LX+6+Math.cos(a)*(56+rA()*18), z = LZ+4+Math.sin(a)*(46+rA()*12);
-    pohon(x,tinggiTanah(x,z)-0.1,z,1.8+rA());
+  for(const [u,v,rx,rz,jumlah,palem] of [[-63,7,29,17,10,0.1],[42,50,28,13,9,0.48],[-9,-60,22,12,7,0.12]]) {
+    tanamRumpun(LX+u,LZ+v,rx,rz,jumlah,{skala:2.25,palem,min:3.5});
   }
   tambahPenabrak(LX + 4.9 * SKS, Y0 + DYS + 5 * SKS, LZ + SKS, 4.2 * SKS, 3.8 * SKS, 3.4 * SKS);
   tonggak(LX - 170, LZ + 60, 20, 44, 18, 0);
   tonggak(LX + 120, LZ - 150, 16, 34, 16, 1);
   // Gerbang Karang di lepas pantai barat pulau suar
   const GKX = LX - 300, GKZ = LZ - 150;
-  medanBlok(GKX,GKZ,17,9,4,(u,v) => {
-    const g = Math.abs(u), d = Math.abs(v);
-    if (g>32 || d>14 || (g>26 && d>8)) return;
-    const bawah = g<10 ? 56 : g<14 ? 52 : g<18 ? 36 : undefined;
-    const h = 60 + (g < 22 ? 4 : 0) + (d<7 && u<15 ? 4 : 0);
-    return {h, bawah, sisi:'tebing', atas:'rumput'};
+  medanBlok(GKX,GKZ,65,37,1.3,(u,v) => {
+    const retak=reliefBumi(u/9,v/7,93), g=Math.abs(u), dalam=Math.abs(v-2.8*Math.sin(u/14));
+    const batas=1-Math.hypot(u/37,dalam/(15+2.5*Math.sin(u/8)))+0.08*retak;
+    if (batas<=0) return;
+    const lebar=19.5+1.3*Math.sin(v/8), bentang=g/lebar;
+    const bawah=g<lebar ? Math.round((56-24*bentang**3+1.4*retak)*2)/2 : undefined;
+    const atap=60+5*(1-g/37)+3.5*Math.sin(u/8)+4*retak;
+    const h=Math.round((bawah!=null ? Math.max(bawah+2.5,atap) : 1.5+(atap-1.5)*halus(0,0.16,batas))*2)/2;
+    return {h,bawah,sisi:'tebing',atas:batas>0.27 && retak>-0.12 ? 'rumput' : 'batuKering'};
   });
   (function () {                                                                                          // rantai pulau pasir dari tanjung pangkalan ke pulau suar
     const ax = -30, az = -112, dx = LX - ax, dz = LZ - az, pj = Math.hypot(dx, dz), ux = dx / pj, uz = dz / pj, rot = Math.atan2(ux, uz), kiri = [], kanan = [];
     [[0.18, 190, 60, 9, true], [0.4, 230, 72, 24, false], [0.62, 200, 64, 10, true], [0.82, 180, 60, 15, false]].forEach(([t, p, l, h, palemKah], i) => {
       const x = ax + dx * t + (i % 2 ? 26 : -22), z = az + dz * t;
-      const sel = 8, n = 2*Math.ceil(p*0.58/sel)+1;
+      const sel = 2.8, n = 2*Math.ceil(p*0.64/sel)+1;
       medanBlok(x,z,n,n,sel,(u,v) => {
-        const f = u*ux+v*uz, g = -u*uz+v*ux;
-        const r = Math.hypot(f/(p*0.54),g/(l*0.66));
-        if (r>=1) return;
-        const tinggi = 2+3*Math.floor(h*Math.min(1,(1-r)*2.1)/3);
-        return {h:tinggi, atas:r>0.75 ? 'pasir' : 'rumput', sisi:'tebing'};
+        const f=(u*ux+v*uz)/p, g=(-u*uz+v*ux)/l*(i%2 ? -1 : 1);
+        const batu=reliefBumi(f*5,g*3,102+i), celah=reliefBumi(f*13,g*8,112+i);
+        const sumbu=g-0.13*Math.sin(f*7+i);
+        const dalam=1-Math.hypot(f/0.53,sumbu/0.56)+0.17*batu+0.05*celah;
+        if (dalam<=0) return;
+        const punggung=halus(0.48,0.04,Math.abs(sumbu-0.12*batu))*halus(0.58,0.13,Math.abs(f+0.13));
+        const singkap=palemKah ? 0 : halus(0.05,0.43,sumbu+0.22*batu);
+        const tinggi=0.5+h*halus(0,0.40-0.30*singkap,dalam)*(0.17+0.57*punggung+0.28*singkap+0.13*batu);
+        const atas=dalam<0.32+0.09*batu && singkap<0.48 ? 'pasir' : singkap>0.58 && dalam<0.28 ? 'batuKering' : 'rumput';
+        return {h:Math.max(0.5,Math.round(2*tinggi)/2),atas,sisi:atas==='pasir' ? 'pasir' : 'tebing'};
       });
       buih(x,z,l*1.5,p*1.25,rot,i);
-      for (let k = 0; k < 7; k++) {
-        const f = (rA()-0.5)*p*0.6, g = (rA()-0.5)*l*0.5;
-        const px = x+ux*f-uz*g, pz = z+uz*f+ux*g;
-        (palemKah ? palem : pohon)(px,tinggiTanah(px,pz)-0.1,pz,1.5+rA()*0.8);
+      for(const [f,g,n] of [[-0.21,0.1,7],[0.16,-0.17,5]]) {
+        tanamRumpun(x+ux*f*p-uz*g*l,z+uz*f*p+ux*g*l,p*0.16,l*0.19,n,
+          {skala:1.95,palem:palemKah ? 0.85 : 0.24,min:2.8,sudut:Math.atan2(uz,ux)});
       }
     });
     dangkal(ax + dx * 0.5, az + dz * 0.5, 230, pj * 1.02, rot);
@@ -1444,37 +1771,70 @@ function buatGame(THREE, renderer) {
     const sudutGua = fase + Number(indeks)*segmen;
     const ox = Math.cos(sudutGua), oz = Math.sin(sudutGua);
     const lorong = indeks === undefined ? null : {x: cx+ox*Rc, z: cz+oz*Rc, ox, oz, tebal};
-    const sel = 8;
-    medanBlok(cx,cz,61,61,sel,(u,v) => {
-      const a = Math.atan2(v,u), k = ((Math.round((a-fase)/segmen) % N) + N) % N;
+    const sel = 2.8, benih = lorong ? 591 : 409;
+    const menara = [[-150,80,178,33,41,-0.34,true],[-65,154,150,24,36,0.58,false]];
+    medanBlok(cx,cz,175,175,sel,(u,v) => {
+      const r = Math.hypot(u,v);
+      if (r<76 || r>242) return;
+      const a = Math.atan2(v,u);
+      const lipatan = reliefBumi(u/74,v/74,benih), retak = reliefBumi(u/23,v/23,benih+1);
+      const azimut = a+0.07*lipatan;
+      const kLokal = (azimut-fase)/segmen, k = ((Math.round(kLokal)%N)+N)%N;
       if (khusus[k] === 'buka') return;
-      const pinggir = Rc + 7*Math.sin(3*a + fase) + 4*Math.sin(7*a);
-      const melintang = Math.abs(Math.hypot(u,v)-pinggir);
-      const lebar = tebal*(0.56 + 0.09*Math.sin(a*4));
+      const pinggir = Rc+14*Math.sin(3*a+fase)+6*Math.sin(7*a)+10*lipatan;
+      const lereng = r-pinggir, melintang = Math.abs(lereng);
+      const teduh = 0.5+0.5*Math.cos(a-(lorong ? 1.32 : 3.28));
+      const telukPasir = lereng<0 ? halus(0.12,0.88,teduh+0.42*lipatan) : 0;
+      const lebar = tebal*(0.50+0.08*Math.sin(4*a)+0.14*lipatan+0.06*retak)+17*telukPasir;
       if (melintang >= lebar) return;
-      const d = 1 - melintang/lebar, tonjol = 0.7 + 0.19*Math.sin(3*a-0.4) + 0.15*Math.cos(5*a+1.1);
-      let h = khusus[k] === 'rendah' ? 4 : 4 + 8*Math.round(tinggi*tonjol*Math.min(1, d*2)/8);
+      const d = 1-melintang/lebar, tonjol = 0.73+0.18*Math.sin(3*a-0.4)+0.13*Math.cos(5*a+1.1)+0.28*lipatan;
+      const tonjolanBatu = reliefBumi(u/29+v/70,v/66,benih+2);
+      // Di sisi laut, ceruk-ceruk sempit membelah dinding. Di sisi teduh, pasir memanjang ke laguna.
+      const profil = lereng>=0 ? d**(0.42+0.16*lipatan) : d**(0.72+1.15*telukPasir);
+      const celah = halus(0.24,0.55,tonjolanBatu)*halus(0,0.16,d)*(1-0.6*d);
+      const punggung = profil*(1.04-0.16*d)-0.21*celah;
+      const sisa = kLokal-Math.round(kLokal);
+      const sebelah=khusus[(k+(sisa>0 ? 1 : -1)+N)%N];
+      const ujung=sebelah==='buka' || sebelah==='rendah' ? 0.06+0.94*halus(0,0.48,0.5-Math.abs(sisa)) : 1;
+      let h=khusus[k]==='rendah' ? 1.5+3.5*d+2*retak : 1+tinggi*tonjol*punggung*ujung;
       let bawah;
       if (lorong && u*ox+v*oz > 0) {
         const silang = -u*oz+v*ox, g = Math.abs(silang+2*Math.sin((u*ox+v*oz-Rc)/25));
         if (g < LOR.lebar/2+7) {
-          bawah = g < 12 ? 40 : g < 19 ? LOR.tinggi : g < 24 ? 32 : g < 28 ? 24 : 12;
+          bawah = 2*Math.round((4+(LOR.tinggi+2.5)*Math.sqrt(Math.max(0,1-(g/(LOR.lebar/2+7))**2)))/2);
+          if (melintang < lebar*0.68) {
+            const tebalAtap = 10 + 8*halus(lebar*0.68,0,melintang);
+            h = Math.max(h,2.5*Math.ceil((bawah+tebalAtap)/2.5));
+          }
           if (h < bawah + 8) return;  // teras tepian berakhir sebelum bibir gua
         }
       }
-      // Dua menara alami di punggung barat membentuk celah yang bisa dikenali dari jauh.
-      if (!lorong) for (const [tx,tz,puncak,lebar] of [[-150,80,178,38],[-65,154,150,29]]) {
-        const t = 1 - Math.max(Math.abs(u-tx),Math.abs(v-tz))/lebar;
-        if (t > 0) h = Math.max(h, 12*Math.round(puncak*(0.64+0.36*t)/12));
+      // Pilar kapur memiliki alas miring, dengan rusuk terbelah di satu sisi.
+      let singkapan = 0;
+      if (!lorong) for (const [tx,tz,puncak,rx,rz,miring,datar] of menara) {
+        const x = u-tx, z = v-tz;
+        const s = (x+miring*z)/rx, n = z/rz;
+        const t = 1-Math.hypot(s+retak*0.12,Math.max(0,Math.abs(n)-0.17))+retak*0.10;
+        if (t<=0) continue;
+        singkapan = Math.max(singkapan,Math.min(1,t));
+        // Puncak barat berupa meja batu miring; pilar timur terbelah sepanjang rekahan menyilang.
+        const retakan = (1-halus(0.03,0.36,Math.abs(n+0.39*s+0.13)))*halus(0.22,0.61,t);
+        const atap = datar ? puncak+3.7*s-5*n+3*retak : puncak-26*retakan-11*halus(-0.1,0.36,-n);
+        const dinding = datar ? halus(0,0.70,t)**0.56 : halus(0,0.79,t)**0.71;
+        h += Math.max(0,atap-h)*dinding;
       }
-      const teduh = Math.cos(a-0.72) + 0.35*Math.sin(3*a) > 0.45;
-      const sisi = bawah || melintang > lebar*0.62 || (!lorong && h>108) ? 'kapur' : 'tebing';
-      return {h, bawah, sisi, atas: h<=6 ? 'pasir' : teduh && h<100 ? 'lumutHutan' : 'rumput'};
+      h = Math.max(1,1.25*Math.round(h/1.25));
+      const karst = bawah || singkapan>0.13 || (lereng>0 && d<0.73 && tonjolanBatu+0.35*lipatan>-0.22);
+      const sisi = karst || (lereng>0 && d<0.46) ? 'kapur' : 'tebing';
+      const atas = h<4+6*telukPasir ? 'pasir' : karst ? 'kapur' : teduh+retak*0.22>0.66 ? 'lumutHutan' : 'rumput';
+      return {h,bawah,sisi,atas};
     });
-    for (let i = 0; i < 44; i++) {
-      const a = i*2*Math.PI/44, r = Rc+12*Math.sin(i*2.18);
-      const x = cx + Math.cos(a)*r, z = cz + Math.sin(a)*r, y = tinggiTanah(x,z);
-      if (y>Y0+22) pohon(x,y-0.1,z,1.7+rA());
+    const sela=pengacak(Math.round(cx)+905);
+    for(let i=0;i<15;i++) {
+      const a=(i+sela()*0.82)*Math.PI*2/15, r=Rc+(sela()-0.5)*tebal*0.60;
+      const x=cx+Math.cos(a)*r, z=cz+Math.sin(a)*r;
+      tanamRumpun(x,z,18+sela()*28,9+sela()*9,5+Math.floor(sela()*7),
+        {skala:2.0+sela(),min:12,palem:0.07,sudut:a+Math.PI/2});
     }
     return { lorong };
   }
@@ -1482,16 +1842,15 @@ function buatGame(THREE, renderer) {
   gelang(TKB, TKZ, 175, 80, 112, 12, { 0: 'buka', 1: 'buka', 11: 'buka' }, 0);                            // pulau barat: bulan sabit, teluknya menghadap selat
   const pulauTimur = gelang(TKT, TKZ, 175, 80, 104, 12, { 3: 'lorong', 9: 'rendah', 10: 'buka' }, 20 * D2R);
   dangkal(0, TKZ, 1180, 640, 0);
-  hamparanAir(BL, TKT, TKZ, 300, 300, 0.45, Y0 + 0.08);
-  hamparanAir(BL, TKB + 30, TKZ, 250, 250, -0.2, Y0 + 0.08);
-  medanBlok(TKB-96,TKZ,11,21,8,(u,v) => {
-    const r = Math.hypot(u/36,v/76);
-    return r<1 ? {h:r<0.76 ? 3 : 1, sisi:'pasir', atas:'pasir'} : null;
+  dangkal(TKT, TKZ, 300, 300, 0.45, true);
+  dangkal(TKB + 30, TKZ, 250, 250, -0.2, true);
+  medanBlok(TKB-96,TKZ,29,55,3,(u,v) => {
+    const r = Math.hypot((u-6*Math.sin(v/28))/34,v/73);
+    const d = 1-r+0.15*reliefBumi(u/17,v/23,527);
+    return d>0 ? {h:0.65+0.75*Math.round(4*d),sisi:'pasir',atas:'pasir'} : null;
   });
-  for (let i = 0; i < 6; i++) {
-    const x = TKB-100+(rA()-0.5)*30, z = TKZ+(rA()-0.5)*110;
-    palem(x,tinggiTanah(x,z)-0.1,z,1.6+rA()*0.8);
-  }
+  tanamRumpun(TKB-98,TKZ-29,16,17,7,{skala:1.95,palem:0.94,min:1.4});
+  tanamRumpun(TKB-92,TKZ+38,10,15,4,{skala:1.65,palem:1,min:1.4});
   (function () {                                                                                          // buih yang mengalir di kaki tebing menuju mulut lorong
     const L = pulauTimur.lorong, t = (d, g) => [L.x + L.ox * d - L.oz * g, L.z + L.oz * d + L.ox * g];
     for (const g of [-13, 0, 13]) alur([t(190, g * 2.4), t(120, g * 1.6), t(60, g), t(0, g), t(-70, g), t(-130, g * 1.8)], 6);
@@ -1502,53 +1861,82 @@ function buatGame(THREE, renderer) {
   tonggak(TKB - 40, TKZ + 320, 13, 36, 14, 1);
   tonggak(TKT + 250, TKZ + 140, 16, 44, 15, 0);
 
-  /* ---------- Gunung Bara: kerucut vulkanik berteras, punggung-punggung gunung, lembah lebar, dan celah punggungan ---------- */
+  /* ---------- Gunung Bara: kawah terbuka, punggungan lava tua dan lembah erosi ---------- */
   const GX = CFG.gunung.x, GZ = CFG.gunung.z, GT = CFG.gunung.tinggi;
   const ARAH_LEMBAH = 275, puncak = new V3(GX+120,Y0+GT-24,GZ);
-  const kakiGunung = [[ARAH_LEMBAH-34,760,84],[ARAH_LEMBAH+34,720,84],[128,720,76],[40,640,76]].map(([arah,panjang,lebar]) => {
+  const kakiGunung = [[ARAH_LEMBAH-34,760,87,-22],[ARAH_LEMBAH+34,720,99,29],[128,720,81,-23],[40,640,73,38]].map(([arah,panjang,lebar,lengkung]) => {
     const a = arah*D2R;
-    return { dx:Math.sin(a), dz:-Math.cos(a), panjang, lebar, celah:arah===128 };
+    return { dx:Math.sin(a), dz:-Math.cos(a), panjang, lebar, lengkung, celah:arah===128 };
   });
-  medanBlok(GX,GZ,81,81,20,(u,v) => {
+  const aliranBara = [[-2.67,36,48,-36,65],[-1.36,52,34,41,120],[-0.55,31,57,57,73],[0.26,38,42,-44,140],[1.26,42,48,-61,78],[1.96,48,40,49,155],[2.79,34,52,56,96]]
+    .map(([a,lebar,dalam,lengkung,hulu]) => ({x:Math.cos(a),z:Math.sin(a),lebar,dalam,lengkung,hulu}));
+  medanBlok(GX,GZ,241,241,6.75,(u,v) => {
     const px = u-120, a = Math.atan2(v,px), r = Math.hypot(px,v);
-    const radius = 510 + 44*Math.sin(3*a + 0.3) + 24*Math.cos(5*a) - 84*Math.cos(a);
-    const dalam = clamp(1 - (r-40)/(radius-40),0,1);
-    let h = GT*dalam**1.35;
-    if (r<54) h = r<30 ? GT-24 : GT + 8 + 13*Math.sin(a-0.7);
+    if (Math.hypot(u,v)>790) return;
+    const relief = reliefBumi(u/115,v/115,651), patahan = reliefBumi((u+0.31*v)/56,v/47,652);
+    const radius = 498+48*Math.sin(3*a+0.3)+29*Math.cos(5*a)-81*Math.cos(a)+49*relief+18*patahan;
+    const dalam = clamp(1-(r-40)/(radius-40),0,1);
+    const lereng = halus(0,0.16,dalam)*halus(1,0.81,dalam);
+    const batu = reliefBumi(u/25,v/32,654);
+    let h = GT*dalam**1.38+(relief*48+patahan*19+batu*6)*lereng;
+    // Aliran terpisah berawal di bawah bibir kawah dan melebar menuju kaki gunung.
+    let kikis = 0;
+    if (lereng>0) for (const alir of aliranBara) {
+      const hilir = px*alir.x+v*alir.z;
+      if (hilir<alir.hulu) continue;
+      const t = (hilir-alir.hulu)/360;
+      const kelok = alir.lengkung*(0.7*Math.sin(t*6.9)+0.37*Math.sin(t*10.8-0.7))+relief*21+patahan*6;
+      const lebar = 13+alir.lebar*hilir/450;
+      const silang = Math.abs(-px*alir.z+v*alir.x-kelok);
+      if (silang<lebar) kikis = Math.max(kikis,alir.dalam*halus(0,0.23,t)*(1-halus(0,lebar,silang)));
+    }
+    h-=kikis*lereng;
+    const bibirR = 42+4*Math.sin(3*a-0.33)+4*relief, bibirLuar = bibirR+23;
+    if (r<bibirLuar) {
+      const bibir = GT+6+14*Math.sin(a-0.77)+6*Math.cos(3*a+0.8);
+      h = r<bibirR ? GT-24+(bibir-GT+24)*halus(19,bibirR,r) : bibir+(h-bibir)*halus(bibirR,bibirLuar,r);
+    }
     for (const jalur of kakiGunung) {
-      const jarak = u*jalur.dx + v*jalur.dz, silang = Math.abs(-u*jalur.dz + v*jalur.dx);
-      if (jarak < 160 || jarak > jalur.panjang || silang > jalur.lebar) continue;
-      if (jalur.celah && Math.abs(jarak-445)<24) { h = Math.min(h,12); continue; }
-      const f = (jalur.panjang-jarak)/(jalur.panjang-160);
-      h = Math.max(h,(12 + 278*f)*(1-(silang/jalur.lebar)**1.2));
+      const jarak = u*jalur.dx+v*jalur.dz;
+      if (jarak<150 || jarak>jalur.panjang) continue;
+      const f = (jarak-150)/(jalur.panjang-150);
+      const lengkung = (Math.sin(Math.PI*f)+0.62*Math.sin(2.8*Math.PI*f))*jalur.lengkung+relief*23;
+      const potong = -u*jalur.dz+v*jalur.dx, silang = potong-lengkung;
+      const lebar = jalur.lebar*(1.1-0.42*f+0.19*relief)*(silang<0 ? 1.18 : 0.87);
+      if (Math.abs(silang)<lebar) {
+        const t = 1-Math.abs(silang)/lebar;
+        const punggung = (288*(1-f)**0.95+25*patahan+10*batu)*halus(0,1,t)**(silang<0 ? 0.9 : 0.61);
+        h += Math.max(0,punggung-h)*halus(150,224,jarak)*halus(1,0.94,f);
+      }
+      if (jalur.celah) {
+        // Jalur tembus mengikuti lekuk pelana; bahunya naik perlahan ke lereng di kedua sisi.
+        const lekuk = 0.12*potong+8*Math.sin(potong/59)+5*patahan;
+        const tepi = Math.hypot((jarak-445-lekuk)/122,potong/216);
+        const dasar = 9+2*relief+1.5*batu;
+        h -= Math.max(0,h-dasar)*(1-halus(0.31,1.12,tepi));
+      }
     }
     if (h < 1.5) return;
-    h = Math.max(4,12*Math.round(h/12));
-    // Sabuk vegetasi mengikuti elevasi. Dua cekungan lembap terbaca sebagai hamparan hutan.
-    const batasPohon = 213 + 24*Math.cos(a+0.5) + 15*Math.sin(3*a);
-    const garisBatu = 329 + 22*Math.sin(a-0.6);
-    const lembap = Math.cos(a-2.7) + 0.65*Math.sin(3*a+0.5) > 0.24;
-    const atas = h <= 6 ? 'pasir' : h < batasPohon ? (lembap ? 'lumutHutan' : 'rumput')
-      : h < garisBatu ? 'lerengBara' : 'basalBara';
-    return {h, sisi: h>=garisBatu ? 'basalBara' : h>190 ? 'batuKering' : 'tanahMerah', atas};
+    h = Math.max(2,2*Math.round(h/2));
+    const batasPohon = 209+22*Math.cos(a+0.5)+52*relief+31*patahan;
+    const garisBatu = 317+30*Math.sin(a-0.6)+54*relief+27*patahan;
+    const lembap = 0.72*relief+kikis/58+0.46*Math.cos(a-2.7)>0.36;
+    const lahar = h>45 && kikis*lereng>24+11*relief+11*patahan;
+    const atas = h<6+4*patahan ? (relief>-0.31 ? 'pasir' : 'batuBasah')
+      : lahar ? 'batuKering' : h<batasPohon ? (lembap ? 'lumutHutan' : 'rumput') : h<garisBatu ? 'lerengBara' : 'basalBara';
+    return {h,sisi: h>=garisBatu ? 'basalBara' : lahar || h>batasPohon ? 'batuKering' : 'tanahMerah',atas};
   });
   buih(GX+25,GZ,960,930,0.2,0);
   dangkal(GX,GZ,1900,1800,0.3);
-  for (let i = 0; i < 64; i++) {
-    const a = rA()*2*Math.PI, r = 155+rA()*315;
-    const x = puncak.x + r*Math.cos(a), z = GZ + r*Math.sin(a), y = tinggiTanah(x,z);
-    if (y>Y0+8 && y<Y0+218) pohon(x,y-0.1,z,2.7+rA()*1.4);
-  }
-  const rHutan = pengacak(80615);
-  for (const [u,v] of [[-384,-45],[-330,85],[-288,-120],[-225,165],[-116,242],[278,145],[360,-75],[-9,-255]]) {
-    for (let i = 0; i < 8; i++) {
-      const x = GX + u + (rHutan()-0.5)*54, z = GZ + v + (rHutan()-0.5)*43;
-      const y = tinggiTanah(x,z), s = 3.3+rHutan()*1.9;
-      const tapak = s*0.42;
-      if (y < Y0+14 || y > Y0+224 ||
-          [[-tapak,-tapak],[tapak,-tapak],[-tapak,tapak],[tapak,tapak]].some(([dx,dz]) => tinggiTanah(x+dx,z+dz) < y-1)) continue;
-      pohon(x,y-0.1,z,s,rHutan()<0.5 ? -1 : 1);
-    }
+  // Hutan merapat di kaki lembah dan terputus di punggung gunung yang terbuka.
+  const rHutan=pengacak(75021);
+  for(const [u,v,rx,rz,n,a] of [
+    [-386,-49,103,33,39,0.21],[-305,86,86,38,30,-0.50],[-271,-141,69,41,26,0.86],
+    [-180,196,61,27,18,-0.42],[-89,284,94,38,28,0.26],[259,228,104,39,32,-0.81],
+    [390,-91,94,31,31,1.10],[4,-313,109,37,31,-0.75],[131,-375,51,23,16,0.2],
+    [425,71,54,32,17,0.62],[-472,89,62,32,20,-0.38],[-105,-232,65,32,19,0.45]
+  ]) {
+    tanamRumpun(GX+u,GZ+v,rx,rz,n,{skala:3.2+0.85*rHutan(),min:9,maks:196+39*rHutan(),sudut:a});
   }
   PA.kotak(puncak.x,puncak.y+0.22,puncak.z,20,0.44,20,{atas:'bara'});
   PA.kotak(puncak.x+10,puncak.y+0.22,puncak.z+12,12,0.44,7,{atas:'bara'});
@@ -1584,8 +1972,30 @@ function buatGame(THREE, renderer) {
   const pA = (a, b) => [AR.O[0] + AR.u[0] * a + AR.v[0] * b, AR.O[1] + AR.u[1] * a + AR.v[1] * b];
   const rotA = Math.atan2(AR.u[0], AR.u[1]), YB = Y0 + 8, JEMB = { a: 160, dek: Y0 + 27 };
   const BK = new Pembangun(AS, 6), PK = new Pembangun(AS, 6);                                             // kampung dan jembatan: teksel lebih kasar karena dilihat dari jauh
-  for (const s of [-1, 1]) { const [x, z] = pA(175, s * 135); daratan(x, Y0 + 3.5, z, 160, 9, 410, { sisi: 'batuBasah', atas: 'rumput' }, { rot: [0, rotA, 0], atas: [0.97, 0.98], uv: uvB }); buih(x, z, 172, 424, rotA, s > 0 ? 0 : 1); }
-  { const [x, z] = pA(480, 0); daratan(x, Y0 + 3.5, z, 440, 9, 210, { sisi: 'batuBasah', atas: 'rumput' }, { rot: [0, rotA, 0], uv: uvB }); }
+  {
+    const [cx,cz]=pA(246,0);
+    medanBlok(cx,cz,189,157,4,(u,v) => {
+      const a=246+u*AR.u[0]+v*AR.u[1], b=u*AR.v[0]+v*AR.v[1], s=Math.sign(b);
+      const batu=reliefBumi(a/75,b/62,134), pecah=reliefBumi(a/25,b/27,135);
+      const sisi=Math.abs(b), muka=-27+10*batu+4*pecah+0.0008*(sisi-117)**2;
+      const telukLuar=17*halus(84,0,Math.abs(a-(s<0 ? 68 : 214)));
+      const tepiLuar=232+18*batu+7*pecah-telukLuar;
+      const jarakDermaga=Math.min(Math.abs(a-50),Math.abs(a-104),Math.abs(a-236),Math.abs(a-300));
+      const alami=halus(4,15,jarakDermaga), hulu=halus(318,415,a);
+      const tepiAir=Math.min(63,51.5+alami*(5.5+5*batu+4*Math.sin(a/51+2*s)));
+      const kanal=(1-hulu)*tepiAir-17*hulu;
+      const dalam=Math.min(a-muka,tepiLuar-sisi,sisi-kanal,554+28*batu-a);
+      if(dalam<=0) return;
+      // Bahu jalan dan fondasi kampung rata. Lidah pasir dan batuan muncul di luar jalur dermaga.
+      const pasir=halus(194,220,sisi)+halus(10,-22,a)+0.30*(1+pecah);
+      const tapak=Math.min(halus(60,66,sisi),halus(-15,0,a),halus(203,191,sisi),halus(388,364,a));
+      const kaki=Math.max(tapak,halus(0,4.5+(0.5+11*clamp(pasir,0,1))*alami,dalam));
+      const bukit=halus(194,226,sisi)*halus(1,18,dalam)*Math.max(1,8+8*batu);
+      const h=Math.max(0.5,Math.round((0.5+7.5*kaki+bukit)*2)/2);
+      const atas=dalam<8+7*pasir ? (pasir>0.38 ? 'pasir' : 'batuKering') : 'rumput';
+      return {h,atas,sisi:atas==='pasir' ? 'pasir' : 'batuPasang'};
+    });
+  }
   { const [x, z] = pA(170, 0); dangkal(x, z, 110, 430, rotA); const [x2, z2] = pA(-170, 0); dangkal(x2, z2, 620, 420, rotA); }
   alur([pA(372, -30), pA(240, -36), pA(80, -40), pA(-60, -52), pA(-200, -90)], 5);                        // arus muara mengalir ke laut
   alur([pA(372, 30), pA(240, 36), pA(80, 40), pA(-60, 52), pA(-200, 90)], 5);
@@ -1600,10 +2010,16 @@ function buatGame(THREE, renderer) {
       const [px, pz] = pA(a, s * 32);
       const arahPilar = { rot: [0, rotA, 0], uv: { pas: true } };
       const tinggiPilar = dek - 2.6 - Y0;
-      for (const [bawah, atas, w, d] of [[0, 3.5, 9, 17], [3.5, tinggiPilar - 3, 6.2, 14], [tinggiPilar - 3, tinggiPilar, 8, 17]]) {
+      const pucukPilar = [
+        [0, 1.0, 9.2, 17.6], [1.0, 1.7, 8.6, 17.0], [1.7, 2.4, 8.0, 16.4],
+        [2.4, 3.3, 7.4, 15.8], [3.3, 6.4, 6.8, 15.0], [6.4, tinggiPilar - 3.4, 6.2, 14.2],
+        [tinggiPilar - 3.4, tinggiPilar - 2.6, 6.7, 15.0], [tinggiPilar - 2.6, tinggiPilar - 1.8, 7.2, 15.8],
+        [tinggiPilar - 1.8, tinggiPilar - 1.1, 7.7, 16.6], [tinggiPilar - 1.1, tinggiPilar, 8.2, 17.4]
+      ];
+      for (const [bawah, atas, w, d] of pucukPilar) {
         const tinggi = atas - bawah, tengah = Y0 + (atas + bawah) / 2;
         BK.kotak(px, tengah, pz, w, tinggi, d, { sisi: 'fondasi', atas: 'fondasiAtas' }, arahPilar);
-        tambahPenabrak(px, tengah, pz, w, tinggi, d, rotA);
+        tambahPenabrak(px, tengah, pz, w, tinggi, d, rotA, [1,1], true);
       }
       for (const masuk of [-1, 1]) {
         const [lx, lz] = pA(a + masuk * 8.2, s * 32);
@@ -1612,19 +2028,30 @@ function buatGame(THREE, renderer) {
       const [ax, az] = pA(a, s * 76);
       BK.kotak(ax, YB + (dek - YB) / 2 - 1, az, 22, dek - YB, 16, 'fondasi', { rot: [0, rotA, 0] });       // kepala jembatan di tepi muara
       tambahPenabrak(ax, YB + (dek - YB) / 2 - 1, az, 22, dek - YB, 16, rotA);
-      for (let j = 0; j < 3; j++) { const [rx, rz] = pA(a, s * (96 + j * 16)), t = (dek - YB) * (1 - (j + 1) / 4); daratan(rx, YB + t / 2 - 0.5, rz, 16, t + 1, 13, { sisi: 'batuKering', atas: 'geladak' }, { rot: [0, rotA, 0] }); }   // tangga landai ke kampung
-      // Rangka tangga dengan penggantung kotak. Seluruh bentang di bawah dek tetap terbuka.
-      const profil = [5, 11, 17, 21, 21, 17, 11, 5], tengahA = a + s * 6.9;
-      for (let j = 0; j < profil.length; j++) {
-        const b = -35 + j * 10, [mx, mz] = pA(tengahA, b), tinggi = profil[j];
-        BK.kotak(mx, dek + tinggi, mz, 10, 2.4, 2.1, merah, { rot: [0, rotA, 0], uv: { pas: true } });
-        tambahPenabrak(mx, dek + tinggi, mz, 10, 2.4, 2.1, rotA, [1, 1], true);
+      const banyakUndak = 32, panjangUndak = 50 / banyakUndak;
+      for (let j = 0; j < banyakUndak; j++) {
+        const [rx, rz] = pA(a, s * (88 + (j + 0.5) * panjangUndak));
+        const t = Math.round((dek - YB) * (1 - (j + 0.5) / banyakUndak) * 4) / 4;
+        daratan(rx, YB + t / 2, rz, panjangUndak, t, 13,
+          { sisi: 'batuKering', atas: 'geladak' }, { rot: [0, rotA, 0], uv: { pas: true } });
+        if (j % 6 < 3) BA.kotak(rx, YB + t + 0.025, rz, panjangUndak, 0.04, 0.23,
+          { atas: 'lampuKapal' }, { rot: [0, rotA, 0], uv: { pas: true } });
       }
-      for (let j = 0; j <= profil.length; j++) {
-        const [hx, hz] = pA(tengahA, -40 + j * 10);
-        const tinggi = Math.max(profil[j - 1] || 0, profil[j] || 0);
-        BK.kotak(hx, dek + tinggi / 2, hz, 1.5, tinggi, 1.5, merah, { rot: [0, rotA, 0], uv: { pas: true } });
-        tambahPenabrak(hx, dek + tinggi / 2, hz, 1.5, tinggi, 1.5, rotA, [1, 1], true);
+      // Lengkung mengikuti parabola pada kisi 1,25 m mendatar dan 0,25 m vertikal.
+      const tengahA = a + s * 6.9, bentang = 40, ruas = 1.25;
+      const puncak = b => Math.round((1 + 19.75 * (1 - (b / bentang) ** 2)) * 4) / 4;
+      const buatBaja = (b, tengah, panjang, tebal, lebar) => {
+        const [hx, hz] = pA(tengahA, b);
+        BK.kotak(hx, tengah, hz, panjang, tebal, lebar, merah, { rot: [0, rotA, 0], uv: { pas: true } });
+        tambahPenabrak(hx, tengah, hz, panjang, tebal, lebar, rotA, [1, 1], true);
+      };
+      for (let b = -bentang; b < bentang; b += ruas) {
+        const atas = puncak(b + ruas / 2), bawah = Math.min(puncak(b), puncak(b + ruas)) - 1.3;
+        buatBaja(b + ruas / 2, dek + (atas + bawah) / 2, ruas, atas - bawah, 1.6);
+      }
+      for (let b = -35; b <= 35; b += 5) {
+        const tinggi = puncak(b) - 0.65;
+        buatBaja(b, dek + tinggi / 2, 0.43, tinggi, 0.43);
       }
     }
     tambahPenabrak(cx, dek - 1.3, cz, 176, 2.6, 13, rotA, [1, 1], true);
@@ -1665,14 +2092,21 @@ function buatGame(THREE, renderer) {
       const muka = { n: depan, pas: true };
       BK.kotak(x, YB + 0.5, z, w + 0.6, 1, d + 0.6, 'fondasi', { rot: [0, rot, 0], uv: { pas: true } });
       BK.kotak(x, YB + (h + 1) / 2, z, w, h - 1, d, { sisi: kayu, pz: muka, nz: muka }, { rot: [0, rot, 0], uv: { pas: true } });
-      atapBalok(BK, x, YB + h, z, w + 2, 3, d + 2, ap, rot);
+      atapBalok(BK, x, YB + h, z, w + 1.7, 3, d + 1.7, ap, rot, true);
       const sin = Math.sin(rot), cos = Math.cos(rot);
       for (const sisi of [-1, 1]) {
         const px = x + cos * sisi * (w / 2 + 0.05), pz = z - sin * sisi * (w / 2 + 0.05);
-        PK.kotak(px, YB + h * 0.59, pz, 0.12, 1.8, 2.5, { px: 'jendela', nx: 'jendela' }, { rot: [0, rot, 0], uv: { pas: true } });
+        const bingkai = { rot: [0, rot, 0], uv: { pas: true } };
+        BK.kotak(px, YB + h * 0.59, pz, 0.18, 1.95, 2.56, 'galeri', bingkai);
+        const lurus = (u, v) => [px + u * cos + v * sin, pz - u * sin + v * cos];
+        for (const offset of [-0.57, 0.57]) {
+          const [wx, wz] = lurus(sisi * 0.12, offset);
+          PK.kotak(wx, YB + h * 0.59, wz, 0.1, 1.58, 0.97, { px: 'jendela', nx: 'jendela' }, bingkai);
+        }
+        const [kx, kz] = lurus(sisi * 0.08, 0);
+        BK.kotak(kx, YB + h * 0.59 - 0.96, kz, 0.44, 0.18, 2.8, kayu, bingkai);
       }
       tambahPenabrak(x, YB + h / 2, z, w, h, d, rot);
-      for (let i = 0; i < 3; i++) tambahPenabrak(x, YB + h + i + 0.5, z, (w + 2) * (1 - i * 0.31), 1, d + 2, rot, [1, 1], true);
     }
     for (const s of [-1, 1]) {                                                                            // dermaga kayu
       const papan = { sisi: 'kayu', atas: 'papanDermaga', bawah: 'kayu' };
@@ -1691,24 +2125,53 @@ function buatGame(THREE, renderer) {
       const [x, z] = pA(-56, s * 92);
       daratan(x, Y0 + 1.6, z, 4.4, 0.4, 76, papan, { rot: [0, rotA, 0], melayang: true });
       for (let g = -32; g <= 32; g += 16) { const [qx, qz] = pA(-56 + g, s * 92); BA.kotak(qx, Y0 + 0.4, qz, 0.6, 2.6, 0.6, 'batang'); }
-      for (let i = 0; i < 6; i++) { const [tx, tz] = pA(20 + rA() * 340, s * (62 + rA() * 6)); palem(tx, YB - 0.1, tz, 1.4 + rA() * 0.7); }
+      for(const [a,n] of [[30,3],[111,2],[241,4],[329,3]]) {
+        const [x,z]=pA(a,s*63);
+        tanamRumpun(x,z,11,3.2,n,{skala:1.68,palem:1,min:6,maks:9,sudut:Math.atan2(AR.u[1],AR.u[0])});
+      }
     }
     scene.add(BK.bangun(matSuar), PK.bangun(matSuarPijar));
   })();
   // perahu nelayan: sebagian tertambat, tiga berlayar bolak-balik lewat kolong jembatan (bisa diikuti)
+  function lambungBertingkat(b, panjang, lebar, tinggi, dasar, sisi, geladak, jumlah) {
+    const langkah = panjang / jumlah, kisi = lebar / 32;
+    const profil = i => {
+      const t = (i + 0.5) / jumlah;
+      const haluan = t < 0.30 ? 0.08 + 0.92 * Math.sin(t / 0.30 * Math.PI / 2) : 1;
+      const buritan = t > 0.86 ? 1 - 0.23 * ((t - 0.86) / 0.14) ** 2 : 1;
+      return Math.max(2, Math.round(32 * haluan * buritan));
+    };
+    // Deret dengan lebar sama digabung, terutama lambung lurus di tengah kapal.
+    for (let awal = 0; awal < jumlah;) {
+      const sel = profil(awal);
+      let akhir = awal + 1;
+      while (akhir < jumlah && profil(akhir) === sel) akhir++;
+      const z = -panjang / 2 + (awal + akhir) * langkah / 2, p = (akhir - awal) * langkah, w = sel * kisi;
+      const naik = tinggi * Math.max(0, 0.30 - (awal + akhir) / (2 * jumlah)) * 0.52;
+      for (const [lo, hi, faktor] of [[0, 0.22, 0.73], [0.22, 0.48, 0.88], [0.48, 1, 1]]) {
+        const atas = hi === 1 ? geladak : sisi;
+        b.kotak(0, dasar + (lo + hi) * tinggi / 2 + naik, z, w * faktor, (hi - lo) * tinggi, p,
+          { sisi, atas, bawah: lo === 0 ? sisi : null }, { uv: { pas: true } });
+      }
+      awal = akhir;
+    }
+  }
   const geoPerahu = (function () {
-    const B = new Pembangun(AA, K.dunia), lam = { sisi: 'perahu', atas: 'kayu' };
-    B.kotak(0, 0.2, 0.45, 2.6, 1.6, 6.5, lam);
-    B.kotak(0, 0.3, -3.5, 1.8, 1.4, 1.4, lam).kotak(0, 0.6, -4.55, 1, 1, 0.7, lam);
-    B.kotak(0, 0.3, 4.15, 1.8, 1.4, 0.9, lam);
-    B.kotak(0, 1.75, 1.4, 1.9, 1.5, 2.2, { sisi: { n: 'anjungan', pas: true }, atas: 'geladak' });
-    B.kotak(0, 2.7, 1.4, 2.4, 0.4, 2.8, 'cerobong');
-    B.kotak(0, 3, -1.2, 0.32, 4, 0.32, 'batang').kotak(0.4, 4.55, -1.2, 0.84, 0.65, 0.22, 'kainAngin');
+    const B = new Pembangun(AA, K.dunia);
+    lambungBertingkat(B, 9.8, 2.65, 1.46, -0.48, 'perahu', 'kayu', 28);
+    B.kotak(0, 1.41, 1.3, 1.84, 0.86, 2.36, { sisi: 'perahu', atas: 'kayu' });
+    B.kotak(0, 2.04, 1.24, 1.72, 0.4, 2.12, { sisi: { n: 'anjungan', pas: true }, atas: 'kayu' });
+    B.kotak(0, 2.34, 1.23, 2.1, 0.2, 2.55, 'cerobong');
+    for (const s of [-1, 1]) {
+      B.kotak(s * 1.24, 1.04, 1.0, 0.13, 0.19, 5.5, 'kayu');
+      B.kotak(s * 0.51, 1.17, -2.5, 0.78, 0.40, 1.04, 'papanDermaga');
+    }
+    B.kotak(0, 2.95, -1.26, 0.18, 4.1, 0.18, 'batang').kotak(0.3, 4.77, -1.26, 0.62, 0.34, 0.11, 'kainAngin');
     return B.geometri();
   })();
   const perahuJalan = [], rutePerahu = [pA(330, -17), pA(60, -17), pA(-150, -34), pA(-270, 40), pA(-150, 44), pA(60, 17), pA(330, 17)];
   (function () {
-    const tambat = [[50, -52, 1.6], [104, 52, -1.5], [236, -52, 1.5], [300, 52, -1.6], [-70, -100, 0.1], [-40, 100, 3.2], [-84, 84, 0.3]];
+    const tambat = [[54, -44, 1.6], [108, 44, -1.5], [240, -44, 1.5], [304, 44, -1.6], [-70, -100, 0.1], [-40, 100, 3.2], [-84, 84, 0.3]];
     for (const [a, b, r] of tambat) { const m = new THREE.Mesh(geoPerahu, matAlam), [x, z] = pA(a, b); m.position.set(x, Y0 + 0.5, z); m.rotation.y = rotA + r; scene.add(m); }
     let total = 0; const pj = rutePerahu.map((p, i) => { const q = rutePerahu[(i + 1) % rutePerahu.length], d = Math.hypot(q[0] - p[0], q[1] - p[1]); total += d; return d; });
     rutePerahu.pj = pj; rutePerahu.total = total;
@@ -1727,15 +2190,20 @@ function buatGame(THREE, renderer) {
     return b.geometri();
   })();
   const geoKapal = (function () {
-    const B = new Pembangun(AA, K.dunia), lam = { sisi: 'lambungKapal', atas: 'geladak' };
-    B.kotak(0, 0.4, 1.8, 5.4, 2.8, 26, lam);
-    B.kotak(0, 0.45, -12.65, 4, 2.7, 2.9, lam).kotak(0, 0.5, -15.55, 2.5, 2.6, 2.9, lam);
-    B.kotak(0, 0.45, 15.9, 4.4, 2.7, 2.2, lam);
-    for (const z of [-7.8, -2.7, 2.4]) B.kotak(0, 2.65, z, 4.2, 1.7, 4.5, { sisi: 'peti', atas: 'geladak' });
-    B.kotak(0, 3.1, 10, 4.5, 2.6, 6, { sisi: 'anjungan', atas: 'geladak' });
-    B.kotak(0, 5, 10, 3.5, 1.2, 4.9, { sisi: { n: 'anjungan', pas: true }, atas: 'geladak' });
-    B.kotak(0, 6.5, 11.3, 1.45, 1.8, 1.45, 'cerobong');
-    B.kotak(0, 4.5, -10, 0.45, 5.4, 0.45, 'cerobong');
+    const B = new Pembangun(AA, K.dunia);
+    lambungBertingkat(B, 34, 5.38, 2.8, -1, 'lambungKapal', 'geladak', 56);
+    for (const z of [-7.6, -2.5, 2.6]) {
+      for (const x of [-1.02, 1.02]) B.kotak(x, 2.59, z, 1.95, 1.58, 4.6, { sisi: 'peti', atas: 'geladak' });
+    }
+    B.kotak(0, 2.87, 9.9, 4.3, 2.14, 6.25, { sisi: 'anjungan', atas: 'geladak' });
+    B.kotak(0, 4.62, 9.6, 3.8, 1.36, 4.97, { sisi: { n: 'anjungan', pas: true }, atas: 'geladak' });
+    B.kotak(0, 5.5, 9.5, 4.18, 0.40, 5.31, 'geladak');
+    B.kotak(0, 6.42, 10.9, 1.22, 1.43, 1.47, 'cerobong').kotak(0, 7.25, 10.9, 1.36, 0.23, 1.61, 'cerobong');
+    B.kotak(0, 4.25, -10.1, 0.29, 4.9, 0.29, 'cerobong').kotak(0, 6.32, -10.1, 1.54, 0.17, 0.19, 'cerobong');
+    for (const s of [-1, 1]) {
+      B.kotak(s * 2.55, 2.16, 1.55, 0.13, 0.14, 21, 'geladak');
+      for (let z = -8.6; z < 12; z += 2.5) B.kotak(s * 2.55, 1.98, z, 0.12, 0.36, 0.12, 'geladak');
+    }
     return B.geometri();
   })();
   const kapalList = [];
@@ -1762,27 +2230,70 @@ function buatGame(THREE, renderer) {
   pulau(4700, 2700, 280, 80, { jauh: true });
   pulau(-3700, 3700, 300, 90, { jauh: true });
 
+  pasangVegetasi();
   scene.add(BA.bangun(matAlam), PA.bangun(matAlamPijar), BB.bangun(matSuar), PB.bangun(matSuarPijar));
   const matBuih = BF.map((b) => {
     const m = new THREE.MeshBasicMaterial({ map: texBuih, transparent: true, opacity: 0.8, depthWrite: false });
+    m.onBeforeCompile = shader => {
+      Object.assign(shader.uniforms,airUniform);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 buihXZ;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nbuihXZ=(modelMatrix*vec4(position,1.)).xz;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 buihXZ; uniform sampler2D petaPesisir; uniform vec4 batasPesisir;')
+        .replace('#include <alphamap_fragment>', `#include <alphamap_fragment>
+          float jarakPantai = texture2D(petaPesisir,(buihXZ-batasPesisir.xy)/batasPesisir.zw).b;
+          diffuseColor.a *= .54 * (1.-smoothstep(.035,.12,jarakPantai));`);
+    };
     const mesh = b.bangun(m); mesh.renderOrder = 3; scene.add(mesh);
     return m;
   });
+  // Jarak ke garis pantai dan kedalaman laguna dibakar sekali ke satu tekstur dunia.
+  function buatPetaKedalaman() {
+    const ukuran = 1024, batas = airUniform.batasPesisir.value;
+    const sel = batas.z / ukuran, n = ukuran * ukuran;
+    const [kanvasPesisir, g] = kanvas(ukuran, ukuran);
+    g.fillStyle = '#fff';
+    for (const p of penabrak) {
+      if (p.melayang || p.y0 > Y0 + 1 || p.y1 < Y0) continue;
+      g.setTransform(p.c/sel,-p.s/sel,p.s/sel,p.c/sel,(p.x-batas.x)/sel,(p.z-batas.y)/sel);
+      g.fillRect(-p.hx,-p.hz,p.hx*2,p.hz*2);
+    }
+    const data = g.getImageData(0,0,kanvasPesisir.width,kanvasPesisir.height).data;
+    const jarak = new Float32Array(n), hasil = new Uint8Array(n*4);
+    for (let i=0; i<n; i++) jarak[i] = data[i*4+3]>80 ? 0 : 64;
+    for (let y=1; y<ukuran-1; y++) for (let x=1; x<ukuran-1; x++) {
+      const i=y*ukuran+x;
+      jarak[i] = Math.min(jarak[i],jarak[i-1]+1,jarak[i-ukuran]+1,jarak[i-ukuran-1]+1.414,jarak[i-ukuran+1]+1.414);
+    }
+    for (let y=ukuran-2; y>0; y--) for (let x=ukuran-2; x>0; x--) {
+      const i=y*ukuran+x;
+      jarak[i] = Math.min(jarak[i],jarak[i+1]+1,jarak[i+ukuran]+1,jarak[i+ukuran+1]+1.414,jarak[i+ukuran-1]+1.414);
+    }
+    for (let i=0; i<n; i++) {
+      const meter = jarak[i]*sel;
+      hasil[i*4] = Math.round(248*Math.exp(-meter/62));
+      hasil[i*4+2] = Math.round(255*Math.min(1,meter/180));
+      hasil[i*4+3] = 255;
+    }
+    for (const h of hamparan) {
+      const c=Math.cos(h.rot), s=Math.sin(h.rot), radius=Math.hypot(h.w,h.d)*.5;
+      const xmin=Math.max(0,Math.floor((h.x-radius-batas.x)/sel)), xmax=Math.min(ukuran-1,Math.ceil((h.x+radius-batas.x)/sel));
+      const ymin=Math.max(0,Math.floor((h.z-radius-batas.y)/sel)), ymax=Math.min(ukuran-1,Math.ceil((h.z+radius-batas.y)/sel));
+      for (let y=ymin; y<=ymax; y++) for (let x=xmin; x<=xmax; x++) {
+        const dx=batas.x+(x+.5)*sel-h.x, dz=batas.y+(y+.5)*sel-h.z;
+        const r=Math.hypot((dx*c-dz*s)*2/h.w,(dx*s+dz*c)*2/h.d);
+        const tutup=1-halus(.45,1,r), i=4*(y*ukuran+x);
+        hasil[i]=Math.max(hasil[i],Math.round((h.laguna?252:221)*tutup));
+        if (h.laguna) hasil[i+1]=Math.round(255*tutup);
+      }
+    }
+    const peta = new THREE.DataTexture(hasil,ukuran,ukuran);
+    peta.minFilter = peta.magFilter = THREE.LinearFilter;
+    peta.needsUpdate = true;
+    return peta;
+  }
   (function () {
-    const lapis = (data, kv, alfa, urut) => {
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(data.p, 3));
-      geo.setAttribute('uv', new THREE.Float32BufferAttribute(data.u, 2));
-      geo.setAttribute('color', new THREE.Float32BufferAttribute(data.warna, 4));
-      geo.setIndex(data.i);
-      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-        map: tekstur(kv, { ulang: true }), vertexColors: true, transparent: true, opacity: alfa, depthWrite: false
-      }));
-      m.renderOrder = urut;
-      scene.add(m);
-    };
-    lapis(BD, kvDangkal, 0.63, 1);
-    lapis(BL, kvLaguna, 0.69, 2);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(AL.p, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(AL.u, 2));
@@ -1812,33 +2323,60 @@ function buatGame(THREE, renderer) {
     const MS = new THREE.Matrix4().makeTranslation(LX, Y0 + DYS, LZ).multiply(new THREE.Matrix4().makeScale(SKS, SKS, SKS)).multiply(new THREE.Matrix4().makeTranslation(-LX, -Y0, -LZ));
     B.atur(MS); P.atur(MS); G.atur(MS);
     const y = s => Y0 + s;
-    const kotakSuar = (tengah, lebar, tinggi) => tambahPenabrak(LX, Y0 + DYS + tengah * SKS, LZ, lebar * SKS, tinggi * SKS, lebar * SKS);
-    B.kotak(LX, y(3.85), LZ, 4.6, 1.5, 4.6, { sisi: 'fondasi', atas: 'fondasiAtas' });
-    kotakSuar(3.85, 4.6, 1.5);
-    const tingkatSuar = [['suarPutih', 3.5], ['suarMerah', 3.2], ['suarPutih', 3], ['suarMerah', 2.7], ['suarPutih', 2.5]];
-    for (let i = 0; i < tingkatSuar.length; i++) {
-      const [ubin, lebar] = tingkatSuar[i];
-      B.kotak(LX, y(4.6 + (i + 0.5) * 1.58), LZ, lebar, 1.58, lebar, { sisi: ubin, atas: ubin }, { uv: { pas: true } });
-      kotakSuar(4.6 + (i + 0.5) * 1.58, lebar, 1.58);
-      if (i % 2 === 0) P.kotak(LX, y(5.5 + i * 1.58), LZ + lebar / 2 + 0.02, 0.36, 0.57, 0.06, 'jendela');
-    }
-    kotakSuar(13.16, 4, 1.32);
-    kotakSuar(14.71, 2.1, 1.78);
-    kotakSuar(16.36, 2.9, 1.52);
-    kotakSuar(17.53, 0.38, 0.86);
-    B.kotak(LX, y(12.8), LZ, 4, 0.6, 4, { sisi: 'galeri', atas: 'dek', bawah: 'galeri' });
-    for (const s of [-1, 1]) {
-      B.kotak(LX, y(13.75), LZ + s * 1.86, 3.92, 0.17, 0.18, 'murette');
-      B.kotak(LX + s * 1.86, y(13.75), LZ, 0.18, 0.17, 3.56, 'murette');
-      for (const k of [-1, 0, 1]) {
-        B.kotak(LX + s * 1.86, y(13.41), LZ + k * 1.86, 0.18, 0.62, 0.18, 'galeri');
-        if (k === 0) B.kotak(LX, y(13.41), LZ + s * 1.86, 0.18, 0.62, 0.18, 'galeri');
+    // Irisan sejajar menyusun penampang bundar pada kisi lokal 12,5 cm.
+    // Jejak tumbukan memakai deretan kotak yang sama dengan siluet luar.
+    function lapisSuar(b, bawah, atas, radius, ubin, tutup) {
+      const kisi = 0.125, tepi = Math.max(1, Math.round(radius / kisi));
+      const setengah = iz => Math.max(1, Math.round(Math.sqrt(Math.max(0, tepi**2 - (iz + 0.5)**2))));
+      for (let depan = -tepi; depan < tepi;) {
+        const sx = setengah(depan);
+        let belakang = depan + 1;
+        while (belakang < tepi && setengah(belakang) === sx) belakang++;
+        const lebar = 2*sx*kisi, pj = (belakang-depan)*kisi, cz = (depan+belakang)*kisi/2;
+        const tengah = (bawah+atas)/2, tinggi = atas-bawah;
+        b.kotak(LX, y(tengah), LZ+cz, lebar, tinggi, pj, { sisi: ubin, atas: tutup || ubin }, { uv: { pas: true } });
+        tambahPenabrak(LX, Y0+DYS+tengah*SKS, LZ+cz*SKS, lebar*SKS, tinggi*SKS, pj*SKS, 0, [1, 1], true);
+        depan = belakang;
       }
     }
-    B.kotak(LX, y(13.32), LZ, 2.1, 0.44, 2.1, 'suarPutih');
-    G.kotak(LX, y(14.57), LZ, 2, 2.06, 2, { sisi: { n: 'kaca', pas: true } });
-    for (const [tingkat, lebar] of [[0, 2.9], [1, 2.1], [2, 1.35]]) B.kotak(LX, y(15.85 + tingkat * 0.5), LZ, lebar, 0.5, lebar, 'atap', { uv: { pas: true } });
-    B.kotak(LX, y(17.53), LZ, 0.38, 0.86, 0.38, 'galeri');
+    lapisSuar(B, 3.1, 3.48, 2.34, 'fondasi', 'fondasiAtas');
+    lapisSuar(B, 3.48, 4.32, 2.17, 'fondasi', 'fondasiAtas');
+    lapisSuar(B, 4.32, 4.6, 2.03, 'fondasi', 'fondasiAtas');
+    for (let i = 0; i < 25; i++) {
+      const bawah = 4.6 + i * 7.9 / 25, radius = 1.76 - i * 0.55 / 24;
+      const ubin = Math.floor(i / 5) % 2 === 0 ? 'suarPutih' : 'suarMerah';
+      lapisSuar(B, bawah, bawah + 7.9 / 25, radius, ubin);
+      if (i === 4 || i === 12 || i === 20) {
+        const depan = LZ + Math.round(radius * 8) / 8;
+        B.kotak(LX, y(bawah), depan, 0.34, 0.55, 0.12, 'galeri');
+        P.kotak(LX, y(bawah + 0.02), depan + 0.07, 0.21, 0.38, 0.05, 'jendela');
+      }
+    }
+    lapisSuar(B, 12.5, 12.7, 1.44, 'galeri', 'dek');
+    lapisSuar(B, 12.7, 12.9, 1.66, 'galeri', 'dek');
+    lapisSuar(B, 12.9, 13.1, 1.91, 'galeri', 'dek');
+    // Balok pendek membentuk pagar mengitari galeri dengan bukaan di antara tiang.
+    const segmen = 16, rGaleri = 1.78;
+    for (let i = 0; i < segmen; i++) {
+      const a = i*2*Math.PI/segmen, b = (i+1)*2*Math.PI/segmen;
+      const x1 = rGaleri*Math.cos(a), z1 = rGaleri*Math.sin(a), x2 = rGaleri*Math.cos(b), z2 = rGaleri*Math.sin(b);
+      const cx = LX+(x1+x2)/2, cz = LZ+(z1+z2)/2, pj = Math.hypot(x2-x1,z2-z1);
+      B.kotak(LX+x1, y(13.43), LZ+z1, 0.11, 0.66, 0.11, 'galeri');
+      for (const ty of [13.43,13.75]) B.kotak(cx, y(ty), cz, 0.10, 0.10, pj+0.04, 'murette', { rot:[0,Math.atan2(x2-x1,z2-z1),0] });
+      tambahPenabrak(LX+(x1+x2)*SKS/2,Y0+DYS+13.45*SKS,LZ+(z1+z2)*SKS/2,0.12*SKS,0.72*SKS,pj*SKS,Math.atan2(x2-x1,z2-z1),[1,1],true);
+    }
+    lapisSuar(B, 13.1, 13.52, 1.04, 'suarPutih');
+    lapisSuar(G, 13.52, 15.5, 0.90, 'lensaAmber');
+    for (let i = 0; i < 8; i++) {
+      const a = i*Math.PI/4;
+      B.kotak(LX+0.91*Math.cos(a), y(14.51), LZ+0.91*Math.sin(a), 0.105, 1.98, 0.105, 'galeri');
+    }
+    for (let i = 0; i < 11; i++) {
+      const r = 1.37 * Math.cos((i / 11) * Math.PI / 2);
+      lapisSuar(B, 15.5+i*0.14, 15.5+(i+1)*0.14, r, 'atap');
+    }
+    B.kotak(LX, y(17.47), LZ, 0.24, 0.86, 0.24, 'galeri');
+    tambahPenabrak(LX,Y0+DYS+17.47*SKS,LZ,0.24*SKS,0.86*SKS,0.24*SKS,0,[1,1],true);
     const hx = LX + 4.9, hz = LZ + 1.0;
     B.kotak(hx, y(4.35), hz, 3.6, 2.2, 2.8, { sisi: 'papanRumah', pz: { n: 'mukaKampung', pas: true } });
     atapBalok(B, hx, y(5.45), hz, 4.1, 1.3, 3.3, 'genteng');
@@ -1883,92 +2421,164 @@ function buatGame(THREE, renderer) {
   };
   const selubungLuar = new THREE.Group();
   (function buatJet() {
-    const B = new Pembangun(AJ, 6), P = new Pembangun(AJ, 6);
-    const badan = new Pembangun(AJ, 6), kaca = new Pembangun(AJ, 6);
-    const catBadan = { sisi: 'badan', atas: 'porselen', bawah: 'sayapBawah' };
-    const ubinPas = (n) => ({ n, pas: true });
-    const catSayap = (atas) => ({
-      atas: ubinPas(atas), sisi: atas === 'merah' ? 'merah' : 'badan', bawah: 'sayapBawah'
+    const sel = 0.10, nx = 100, ny = 32, nz = 91, bidang = nx * ny;
+    const isi = new Uint8Array(bidang * nz);
+    const BADAN = 0, KACA = 1, SAYAP = 2, AIL_KI = 3, AIL_KA = 4, EKOR_KI = 5, EKOR_KA = 6, PIJAR = 7;
+    const putih = 1, perak = 2, bawah = 3, merah = 4, emas = 5, arang = 6, titanium = 7, putihHangat = 8;
+    const biruKaca = 9, kilapKaca = 10, sian = 11, hijau = 12, merahNyala = 13, biruApi = 14;
+    const palet = [0, 0xd2dedf, 0x93a7b3, 0x596b80, 0xd95646, 0xd8ad58, 0x303e4d, 0x667487, 0xebead9,
+      0x438ba5, 0x82c0cb, 0xe1fffa, 0x78f4bd, 0xff8a73, 0x57bcf0].map(w => new THREE.Color(w));
+    const kode = (bagian, warna) => bagian * 16 + warna;
+    const profil = [[-4.7, 0.08, 0.09], [-4.3, 0.21, 0.18], [-3.5, 0.44, 0.31],
+      [-2.35, 0.62, 0.43], [-0.55, 0.80, 0.52], [0.85, 0.84, 0.46], [1.7, 0.73, 0.37], [2.85, 0.36, 0.27]];
+    for (let k = 1; k < nz - 1; k++) {
+      const z = -5 + (k + 0.5) * sel;
+      let lebar = 0, tinggi = 0;
+      for (let t = 1; t < profil.length; t++) {
+        const [za, wa, ha] = profil[t - 1], [zb, wb, hb] = profil[t];
+        if (z < za || z > zb) continue;
+        const f = (z - za) / (zb - za);
+        lebar = wa + (wb - wa) * f; tinggi = ha + (hb - ha) * f; break;
+      }
+      for (let i = 1; i < nx - 1; i++) {
+        const x = -5 + (i + 0.5) * sel, ax = Math.abs(x), kanan = x > 0;
+        const bentang = clamp((ax - 0.53) / 4.13, 0, 1);
+        const depan = -1.60 + 2.76 * bentang, belakang = 1.55 + 0.38 * bentang;
+        const korda = clamp((z - depan) / (belakang - depan), 0, 1);
+        const camber = 0.11 * (1 - bentang) * Math.sin(korda * Math.PI) + 0.11 * bentang * bentang;
+        const tebal = 0.07 + 0.15 * (1 - bentang) * Math.sin(Math.PI * Math.pow(korda, 0.65));
+        const ekor = (ax - 0.63) / 1.88;
+        const diEkor = ekor >= 0 && ekor <= 1 && z >= 1.6 + ekor * 1.23 && z <= 3.12 + ekor * 0.35;
+        const atapKaca = 1 - (x / 0.56) ** 2 - ((z + 1.75) / 1.40) ** 2;
+        for (let j = 1; j < ny - 1; j++) {
+          const y = -0.95 + (j + 0.5) * sel;
+          let v = 0;
+          if (lebar && (x / lebar) ** 2 + ((y + 0.03) / tinggi) ** 2 <= 1) {
+            v = kode(BADAN, z < -4.27 ? merah : y < -0.22 ? bawah : y < 0.08 ? perak : putih);
+          }
+          if (atapKaca > 0 && y > 0.29 && y <= 0.34 + 0.67 * Math.sqrt(atapKaca)) {
+            const bingkai = y < 0.46 || Math.abs(z + 0.98) < 0.075 || atapKaca < 0.06;
+            v = bingkai ? kode(BADAN, arang) : kode(KACA, y > 0.81 ? kilapKaca : biruKaca);
+          }
+          if (ax >= 0.53 && ax <= 4.66 && z >= depan && z <= belakang && Math.abs(y - camber) <= tebal) {
+            const kemudi = ax > 2.1 && ax < 4.25 && z >= 1.5;
+            const bagian = kemudi ? (kanan ? AIL_KA : AIL_KI) : SAYAP;
+            let warna = y < camber - 0.045 ? bawah : putih;
+            if (bentang > 0.75 && bentang < 0.855) warna = merah;
+            else if (korda < 0.075 || (kemudi && z < 1.61)) warna = titanium;
+            else if (ax > 1.55 && ax < 1.95 && Math.abs(z - 0.51 - Math.abs(ax - 1.75)) < 0.13) warna = merah;
+            else if (ax > 0.85 && ax < 1.02 && korda < 0.64 && k % 5 < 3) warna = emas;
+            v = ax > 4.54 && z > 1.32 && z < 1.71 ? kode(PIJAR, kanan ? hijau : merahNyala) : kode(bagian, warna);
+          }
+          if (diEkor && Math.abs(y - 0.12 - 0.11 * ekor) <= 0.14 - 0.065 * ekor) {
+            v = kode(kanan ? EKOR_KA : EKOR_KI, ekor > 0.72 && ekor < 0.84 ? merah : y < 0.13 ? perak : putih);
+          }
+          const tinggiSirip = (y - 0.28) / 1.57;
+          if (tinggiSirip >= 0 && tinggiSirip <= 1 && Math.abs(ax - 0.63 - 0.31 * tinggiSirip) < 0.14 - 0.055 * tinggiSirip
+              && z >= 1.19 + 1.36 * tinggiSirip && z <= 3.12 + 0.15 * tinggiSirip) {
+            v = kode(SAYAP, tinggiSirip > 0.76 ? merah : tinggiSirip > 0.57 ? putihHangat : perak);
+          }
+          if (z >= -1.58 && z <= 3.51) {
+            const taper = clamp((z - 2.38) / 1.13, 0, 1), rx = 0.48 - 0.10 * taper, ry = 0.40 - 0.085 * taper;
+            const ring = ((ax - 0.62) / rx) ** 2 + ((y + 0.10) / ry) ** 2;
+            if (ring < 1 && (z < 3.23 || ring > 0.61)) {
+              let cat = y < -0.13 ? bawah : y > 0.13 ? putih : perak;
+              if (z < -1.46 && ring < 0.7) cat = arang;
+              if (z > 2.74) cat = k % 4 === 1 && z < 3.15 ? titanium : arang;
+              v = z >= 3.10 && z < 3.23 && ring < 0.63 ? kode(PIJAR, ring < 0.22 ? sian : biruApi) : kode(SAYAP, cat);
+            }
+          }
+          isi[i + j * nx + k * bidang] = v;
+        }
+      }
+    }
+
+    // Muka dalam dihilangkan. Rongga di sekitar sirip, akar sayap dan nosel menggelapkan sudut yang terlindung.
+    const buffer = Array.from({ length: 8 }, () => ({ p: [], n: [], c: [], indeks: [] }));
+    const langkah = [1, nx, bidang], pojok = [[-1,-1],[1,-1],[1,1],[-1,1]];
+    const titik = [0,0,0], normal = new V3(), lengkung = new V3();
+    const padat = b => isi[b] ? 1 : 0;
+    const gradien = (b, arah) => padat(b - arah) - padat(b + arah) + 0.65 * (padat(b - 2 * arah) - padat(b + 2 * arah));
+    for (let k = 1; k < nz - 1; k++) for (let j = 1; j < ny - 1; j++) for (let i = 1; i < nx - 1; i++) {
+      const b = i + j * nx + k * bidang, v = isi[b];
+      if (!v) continue;
+      const kelompok = v >> 4, dst = buffer[kelompok], warna = palet[v & 15];
+      const x = -5 + (i + 0.5) * sel, y = -0.95 + (j + 0.5) * sel, z = -5 + (k + 0.5) * sel;
+      lengkung.set(gradien(b, 1), gradien(b, nx), gradien(b, bidang)).normalize();
+      for (let a = 0; a < 3; a++) for (const s of [-1, 1]) {
+        const tetangga = b + s * langkah[a], lain = isi[tetangga], kelompokLain = lain >> 4;
+        if (lain && (kelompokLain === kelompok || (kelompok < 2 && kelompokLain < 2))) continue;
+        const u = (a + (s > 0 ? 1 : 2)) % 3, w = 3 - a - u, awal = dst.p.length / 3;
+        normal.copy(lengkung).multiplyScalar(0.38);
+        normal.setComponent(a, normal.getComponent(a) + s).normalize();
+        for (const [du, dw] of pojok) {
+          titik[0] = x; titik[1] = y; titik[2] = z;
+          titik[a] += s * sel / 2; titik[u] += du * sel / 2; titik[w] += dw * sel / 2;
+          const samping = tetangga + du * langkah[u], atas = tetangga + dw * langkah[w];
+          const oklusi = padat(samping) + padat(atas) + padat(samping + dw * langkah[w]);
+          const terang = 1 - oklusi * 0.085;
+          dst.p.push(...titik); dst.n.push(normal.x, normal.y, normal.z);
+          dst.c.push(warna.r * terang, warna.g * terang, warna.b * terang);
+        }
+        dst.indeks.push(awal, awal + 1, awal + 2, awal, awal + 2, awal + 3);
+      }
+    }
+    const enamel = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 24, specular: 0x575963 });
+    const kaca = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 70, specular: 0xb3e2e4 });
+    const nyala = new THREE.MeshBasicMaterial({ vertexColors: true });
+    const part = buffer.map((d, i) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(d.p, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(d.n, 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(d.c, 3));
+      g.setIndex(d.indeks);
+      return new THREE.Mesh(g, i === KACA ? kaca : i === PIJAR ? nyala : enamel);
     });
-
-    // Hidung, kabin, dan punggung memakai ukuran bertingkat dengan batas antarmuka yang sama.
-    badan.kotak(0, 0, -4.25, 0.50, 0.40, 0.75, 'merah');
-    badan.kotak(0, 0, -3.50, 1.00, 0.60, 0.75, catBadan);
-    badan.kotak(0, 0, -2.75, 1.50, 0.80, 0.75, catBadan);
-    badan.kotak(0, 0, -0.25, 2.00, 1.00, 4.25, catBadan);
-    badan.kotak(0, 0.5, 0.875, 1.00, 0.25, 1.5, 'porselen');
-    badan.kotak(0, 0.5, -1.4, 1.46, 0.25, 2.85, 'mesin');
-    kaca.kotak(0, 0.72, -1.4, 1.34, 0.20, 2.64, { semua: ubinPas('kaca') });
-    kaca.kotak(0, 0.94, -1.27, 1.22, 0.24, 1.90, { semua: ubinPas('kaca') });
-    badan.kotak(0, 0.95, -0.64, 1.26, 0.27, 0.14, 'mesin');
-    badan.kotak(0, 0.6, 0.02, 1.24, 0.42, 0.32, 'porselen');
-    selubungLuar.add(badan.bangun(matJet), kaca.bangun(matJetPijar));
-    jet.model.add(selubungLuar);
-
-    // Setiap bentang memakai tepi lurus. Kelima anak tangga membentuk sapuan sayap yang jelas dari kamera ekor.
-    const bentang = [
-      [1, 1.75, -1.625, 1.50, 'porselen'], [1.75, 2.5, -1.00, 1.50, 'lencana'],
-      [2.5, 3.25, -0.375, 1.50, 'porselen'], [3.25, 4, 0.250, 1.50, 'merah'],
-      [4, 4.625, 0.750, 1.75, 'salju']
-    ];
+    selubungLuar.add(part[BADAN], part[KACA]);
+    jet.model.add(selubungLuar, part[SAYAP], part[PIJAR]);
     const apiKotak = new Pembangun(AJ, 4);
-    apiKotak.kotak(0, 0, 0.23, 1, 1, 0.46, 'api');
-    apiKotak.kotak(0, 0, 0.63, 0.72, 0.72, 0.34, 'api');
-    apiKotak.kotak(0, 0, 0.90, 0.42, 0.42, 0.20, 'api');
+    for (let k = 0; k < 10; k++) {
+      const diameter = 1 - k * 0.071;
+      apiKotak.kotak(0, 0, 0.05 + k * 0.10, diameter, diameter, 0.10, 'api');
+    }
     const geoApi = apiKotak.geometri();
     for (const s of [-1, 1]) {
-      for (const [akar, ujung, depan, belakang, cat] of bentang) {
-        B.kotak(s * (akar + ujung) / 2, 0, (depan + belakang) / 2, ujung - akar, 0.25, belakang - depan, catSayap(cat));
-      }
-      B.kotak(s * 1.23, 0, -0.48, 0.48, 0.53, 2.75, { semua: 'badan', atas: 'porselen', nz: ubinPas('kisi') });
-      B.kotak(s * 1.23, 0.30, -1.25, 0.36, 0.07, 0.42, 'emas');
-      P.kotak(s * 4.66, 0.005, 1.16, 0.08, 0.17, 0.36, s > 0 ? 'lampuHijau' : 'lampuMerah');
-
-      const A = new Pembangun(AJ, 6), E = new Pembangun(AJ, 6);
-      A.kotak(s * 2.75, 0, 0.22, 2.44, 0.19, 0.44, catSayap('badan'));
-      const aileron = A.bangun(matJet);
-      aileron.position.z = 1.53;
-      E.kotak(s * 1.125, 0, 0.04, 0.75, 0.22, 1.50, catSayap('porselen'));
-      E.kotak(s * 1.875, 0, 0.29, 0.75, 0.22, 1.00, catSayap('merah'));
-      E.kotak(s * 2.375, 0, 0.54, 0.25, 0.22, 0.50, catSayap('salju'));
-      const ekor = E.bangun(matJet);
-      ekor.position.set(0, 0.15, 2.62);
+      const aileron = part[s < 0 ? AIL_KI : AIL_KA], ekor = part[s < 0 ? EKOR_KI : EKOR_KA];
+      aileron.position.set(0, 0.05, 1.5); ekor.position.set(0, 0.17, 2.60);
+      for (const m of [aileron, ekor]) m.geometry.translate(0, -m.position.y, -m.position.z);
       jet.model.add(aileron, ekor);
       jet.kemudiSayap.push({ sisi: s, aileron, ekor });
-
-      // Sirip kembar memakai pita merah-putih yang tetap terbaca pada muka belakang.
-      B.kotak(s * 0.69, 0.60, 2.24, 0.29, 0.56, 1.99, 'badan');
-      B.kotak(s * 0.69, 1.15, 2.50, 0.29, 0.54, 1.48, 'salju');
-      B.kotak(s * 0.69, 1.63, 2.75, 0.29, 0.42, 0.99, 'merah');
-      B.kotak(s * 0.59, 0, 2.28, 1.00, 0.87, 1.87, catBadan);
-      B.kotak(s * 0.59, 0, 3.36, 0.87, 0.75, 0.29, 'mesin');
-      P.kotak(s * 0.59, 0, 3.52, 0.55, 0.48, 0.04, { pz: ubinPas('api') });
       const luar = new THREE.Mesh(geoApi, new THREE.MeshBasicMaterial({ color: 0x36b2ff, transparent: true, opacity: 0.45, depthWrite: false }));
       const dalam = new THREE.Mesh(geoApi, new THREE.MeshBasicMaterial({ color: 0xd1fff3, transparent: true, opacity: 0.9, depthWrite: false }));
-      luar.position.set(s * 0.59, 0, 3.53); dalam.position.copy(luar.position);
+      luar.position.set(s * 0.62, -0.10, 3.40); dalam.position.copy(luar.position);
       luar.renderOrder = 2; dalam.renderOrder = 1;
-      jet.model.add(luar, dalam);
-      jet.api.push({ luar, dalam });
+      jet.model.add(luar, dalam); jet.api.push({ luar, dalam });
     }
-    jet.model.add(B.bangun(matJet), P.bangun(matJetPijar));
     jet.model.scale.setScalar(CFG.jet.skala);
-    jet.grup.add(jet.model);
-    scene.add(jet.grup);
+    jet.grup.add(jet.model); scene.add(jet.grup);
   })();
 
   /* ---------- Tambahan jet: kokpit (hanya tampak dari kamera kokpit), roda, dan bayangan ---------- */
-  AJ.baru('instrumen', 96, 24, (q) => {
-    q.isi(0x273342).bingkai(0x657384, 0x11151f);
-    for (const x of [5, 88]) q.k(x, 3, 2, 2, 0x8791a0).k(x, 19, 2, 2, 0x101728);
-    for (const x of [22, 49]) {
-      q.k(x - 10, 4, 20, 16, 0x101a27).k(x - 7, 2, 14, 20, 0x101a27);
-      for (let i = 0; i <= 8; i++) {
-        const a = -2.25 + i * 0.5625;
-        q.k(x + Math.sin(a) * 7, 12 - Math.cos(a) * 7, 2, 1, i > 6 ? 0xe9a45f : 0xa8bbc0);
+  AJ.baru('instrumen', 192, 48, (q) => {
+    q.isi(0x34404c).bingkai(0x657384, 0x11151f);
+    for (const x of [6, 183]) for (const y of [5, 39]) {
+      q.k(x, y, 3, 3, 0x8c9aa3).k(x, y + 1, 3, 1, 0x465262);
+    }
+    for (const x of [44, 98]) {
+      for (let y = -19; y <= 19; y++) {
+        const jari = Math.round(Math.sqrt(19 * 19 - y * y));
+        q.k(x - jari, 23 + y, 2 * jari + 1, 1, y < -16 ? 0x7e9093 : 0x17212e);
+        if (Math.abs(y) < 16) q.k(x - jari + 2, 23 + y, 2 * jari - 3, 1, 0x1f303b);
+      }
+      for (let i = 0; i <= 16; i++) {
+        const a = -2.25 + i * 0.28125;
+        q.k(x + Math.sin(a) * 14, 24 - Math.cos(a) * 14, i % 2 ? 1 : 2, 2, i > 13 ? 0xe9a45f : 0xb3c5c7);
       }
     }
-    q.k(67, 3, 11, 18, 0x131d2b);
-    for (let y = 4; y < 20; y += 3) q.k(79, y, y === 4 ? 4 : 2, 1, 0xa8bbc0);
+    q.k(133, 5, 23, 37, 0x141e2b).k(136, 7, 1, 32, 0x526370);
+    for (let y = 8; y < 40; y += 3) q.k(158, y, y % 2 ? 3 : 6, 1, 0xb3c5c7);
+    q.g.font = 'bold 6px monospace'; q.g.textAlign = 'center'; q.g.fillStyle = '#cad6d2';
+    q.g.fillText('SPD', 44, 37); q.g.fillText('ALT', 98, 37); q.g.fillText('%', 168, 11);
   });
   texJet.needsUpdate = true;
   const kokpit = new THREE.Group(), roda = new THREE.Group(), panelInstrumen = new THREE.Group();
@@ -1991,44 +2601,33 @@ function buatGame(THREE, renderer) {
     batangGas.add(new Pembangun(AJ, K.jet).kotak(0, 0.056, 0, 0.04, 0.112, 0.003, 'lampuHijau').bangun(matJetPijar));
     panelInstrumen.add(jarumLaju, jarumTinggi, batangGas);
     for (const s of [-1, 1]) {
-      B.kotak(s * 0.52, ey + 0.03, ez - 0.64, 0.032, 0.64, 0.044, 'mesin');
-      B.kotak(s * 0.52, ey - 0.28, ez + 0.04, 0.05, 0.05, 1.40, 'badan');
-      B.kotak(s * 0.52, ey + 0.34, ez + 0.04, 0.032, 0.036, 1.40, 'mesin');
+      for (let seg = 0; seg < 32; seg++) {
+        const t = (seg + 0.5) / 32, sisi = 0.58 - 0.19 * t * t;
+        B.kotak(s * sisi, ey - 0.28 + 0.66 * t, ez - 0.70 + 0.09 * t, 0.027, 0.022, 0.031, 'mesin');
+      }
+      B.kotak(s * 0.58, ey - 0.28, ez + 0.04, 0.04, 0.04, 1.48, 'badan');
+      B.kotak(s * 0.40, ey + 0.38, ez + 0.09, 0.028, 0.026, 1.39, 'mesin');
+      for (let k = 0; k < 8; k++) {
+        const f = (k + 0.5) / 8;
+        B.kotak(s * f * 0.41, ey + 0.405 - 0.024 * f * f, ez - 0.613, 0.054, 0.026, 0.043, 'mesin');
+      }
     }
-    B.kotak(0, ey + 0.34, ez - 0.64, 1.06, 0.034, 0.04, 'mesin');
     kokpit.add(B.bangun(matJet), panelInstrumen);
     kokpit.visible = false;
     jet.model.add(kokpit);
     const R = new Pembangun(AJ, K.jet);
     for (const [x, z] of [[0, -2.3], [-0.95, 1.0], [0.95, 1.0]]) {
       R.kotak(x, -0.72, z, 0.1, 0.6, 0.1, 'tepi');
-      R.kotak(x, -0.95, z, 0.16, 0.32, 0.34, 'mesin');
+      for (let j = 0; j < 7; j++) {
+        const h = (j - 3) * 0.046;
+        const tapak = 2 * Math.sqrt(0.17 * 0.17 - h * h);
+        R.kotak(x, -0.95 + h, z, 0.15, 0.046, tapak, 'mesin');
+      }
+      R.kotak(x, -0.95, z, 0.16, 0.08, 0.08, 'tepi');
     }
     roda.add(R.bangun(matJet));
     jet.model.add(roda);
   })();
-  const [kvBayangan, kuasBayangan] = kanvas(96, 96);
-  kuasBayangan.translate(48, 49);
-  kuasBayangan.scale(9, 9);
-  // Proyeksikan permukaan atas pesawat saat netral sekali saat dimuat. Bayangan mengikuti tangga sayap sebenarnya.
-  jet.grup.updateWorldMatrix(true, true);
-  const titikBayang = [new V3(), new V3(), new V3()];
-  kuasBayangan.fillStyle = '#ffffff';
-  jet.model.traverseVisible((bagian) => {
-    if (!bagian.isMesh || (bagian.material !== matJet && bagian.material !== matJetPijar)) return;
-    const posisi = bagian.geometry.attributes.position, indeks = bagian.geometry.index;
-    for (let i = 0; i < indeks.count; i += 3) {
-      for (let j = 0; j < 3; j++) titikBayang[j].fromBufferAttribute(posisi, indeks.getX(i + j)).applyMatrix4(bagian.matrixWorld).divideScalar(CFG.jet.skala);
-      const [a, b, c] = titikBayang;
-      if ((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x) >= 0) continue;
-      kuasBayangan.beginPath();
-      kuasBayangan.moveTo(a.x, a.z); kuasBayangan.lineTo(b.x, b.z); kuasBayangan.lineTo(c.x, c.z);
-      kuasBayangan.closePath(); kuasBayangan.fill();
-    }
-  });
-  const matBayangan = new THREE.MeshBasicMaterial({ map: tekstur(kvBayangan), color: 0x080d23, transparent: true, opacity: 0.3, depthWrite: false });
-  const bayangan = new THREE.Mesh(new THREE.PlaneGeometry(96 / 9 * CFG.jet.skala, 96 / 9 * CFG.jet.skala).rotateX(-Math.PI / 2), matBayangan);
-  scene.add(bayangan);
 
   /* =====================================================================
      STATUS, INPUT, ANTARMUKA
@@ -2415,9 +3014,7 @@ function buatGame(THREE, renderer) {
     const cx = camera.position.x, cz = camera.position.z;
     laut.position.x = Math.round(cx / UBIN_LAUT) * UBIN_LAUT;                           // laut mengikuti kamera per ubin agar pola tidak bergeser
     laut.position.z = Math.round(cz / UBIN_LAUT) * UBIN_LAUT;
-    texLaut.offset.y = (waktuLatar * 0.037) % 1;
-    texLaut.offset.x = Math.sin(waktuLatar * 0.12) * 0.025;
-    waktuAir.value = waktuLatar;
+    airUniform.waktuAir.value = waktuLatar;
     langit.kubah.position.set(cx, camera.position.y + langit.geserY, cz);
     langit.awan.position.x = 74 * Math.sin(waktuLatar * 0.012);
     matBuih[0].opacity = 0.62 + 0.26 * Math.sin(waktuLatar * 1.1);
@@ -2461,17 +3058,6 @@ function buatGame(THREE, renderer) {
       a.dalam.scale.set(dalam, dalam, (0.16 + 1.10 * jet.dorong) * getarApi);
       a.luar.material.opacity = 0.26 + 0.54 * jet.dorong;
       a.dalam.material.opacity = 0.54 + 0.45 * jet.dorong;
-    }
-    // bayangan jet di permukaan di bawahnya membantu membaca ketinggian saat terbang rendah
-    const dasar = tinggiTanah(jet.pos.x, jet.pos.z, jet.pos.y), tinggiJet = jet.pos.y - dasar;
-    bayangan.visible = jet.grup.visible && tinggiJet < 28;
-    if (bayangan.visible) {
-      const panjangBayangan = Math.max(0, tinggiJet) / Math.max(0.18, surya.position.y);
-      const bx = jet.pos.x - surya.position.x * panjangBayangan, bz = jet.pos.z - surya.position.z * panjangBayangan;
-      bayangan.position.set(bx, tinggiTanah(bx, bz, jet.pos.y) + 0.24, bz);
-      bayangan.scale.x = 0.22 + 0.78 * Math.abs(Math.cos(jet.miring));
-      bayangan.rotation.y = jet.yaw;
-      matBayangan.opacity = 0.35 * clamp(1 - tinggiJet / 28, 0, 1);
     }
     roda.visible = jet.fase === 'darat' || (jet.pos.y - YL < 14 && diAtasLandasan(jet.pos.x, jet.pos.z, 60));
     perbaruiPartikel(dt);
@@ -2648,7 +3234,7 @@ function buatGame(THREE, renderer) {
     if (kursor) el.kursor.style.transform = 'translate3d(' + kemudi.px + 'px,' + kemudi.py + 'px,0)';
   }
   // Resolusi adaptif: dunia terbuka membebani piksel, jadi rasio piksel mengikuti laju bingkai yang terukur.
-  const rasioMaks = () => Math.min(1, CFG.tinggiPiksel / Math.max(1, window.innerHeight));
+  const rasioMaks = () => Math.min(window.devicePixelRatio || 1, 1.75, CFG.tinggiPiksel / Math.max(1, window.innerHeight));
   const res = { rasio: rasioMaks(), waktu: 0, bingkai: 0, bagus: 0, tahan: 15, naikSetelah: 0 };
   function aturRasio(dtAsli, sekarang) {
     if (dtAsli <= 0 || dtAsli > 0.25 || state.mode !== 'terbang') { res.waktu = 0; res.bingkai = 0; return; }   // hanya diukur saat terbang
@@ -2678,6 +3264,60 @@ function buatGame(THREE, renderer) {
   }
 
   /* ---------- Alur ---------- */
+  const kameraPantul = new THREE.PerspectiveCamera();
+  const normalLaut = new V3(0,1,0), arahPantul = new V3(), tujuanPantul = new V3();
+  const potongLaut = [new THREE.Plane(normalLaut,-Y0 + .05)];
+  kameraPantul.layers.set(1);
+  let pantulTerakhir = -Infinity, bayangTerakhir = -Infinity;
+  const posisiPantul = new V3(), rotasiPantul = new THREE.Quaternion();
+  function gambarPemandangan() {
+    const sisi = Math.min(768, Math.max(192, Math.round(lebar * res.rasio * .52)));
+    const vertikal = Math.max(96, Math.round(sisi * tinggi / lebar));
+    const ubah = sisi !== cerminAir.width || vertikal !== cerminAir.height;
+    const pindah = posisiPantul.distanceToSquared(camera.position) > 36 || rotasiPantul.angleTo(camera.quaternion) > .15;
+    if (ubah || pindah || waktuLatar - pantulTerakhir > .065) {
+      if (ubah) cerminAir.setSize(sisi,vertikal);
+      kameraPantul.position.copy(camera.position);
+      kameraPantul.position.y = 2*Y0-camera.position.y;
+      camera.getWorldDirection(arahPantul).reflect(normalLaut);
+      kameraPantul.up.set(0,1,0).applyQuaternion(camera.quaternion).reflect(normalLaut);
+      kameraPantul.lookAt(tujuanPantul.copy(kameraPantul.position).add(arahPantul));
+      kameraPantul.near = camera.near;
+      kameraPantul.far = camera.far;
+      kameraPantul.projectionMatrix.copy(camera.projectionMatrix);
+      kameraPantul.projectionMatrixInverse.copy(camera.projectionMatrixInverse);
+      kameraPantul.updateMatrixWorld();
+      airUniform.matriksPantul.value.multiplyMatrices(kameraPantul.projectionMatrix,kameraPantul.matrixWorldInverse);
+      const klipLama = renderer.clippingPlanes;
+      const langitY = langit.kubah.position.y;
+      langit.kubah.position.y = kameraPantul.position.y + langit.geserY;
+      renderer.setRenderTarget(cerminAir);
+      renderer.clippingPlanes = potongLaut;
+      renderer.render(scene,kameraPantul);
+      renderer.clippingPlanes = klipLama;
+      renderer.setRenderTarget(null);
+      langit.kubah.position.y = langitY;
+      posisiPantul.copy(camera.position);
+      rotasiPantul.copy(camera.quaternion);
+      pantulTerakhir = waktuLatar;
+    }
+    if (waktuLatar - bayangTerakhir > .075 || pindah || ubah) {
+      const arah = camera.getWorldDirection(arahPantul);
+      const jangkau = state.mode === 'menu' ? 5 : 42;
+      const x = jet.pos.x + arah.x*jangkau, z = jet.pos.z + arah.z*jangkau;
+      const dasar = tinggiTanah(x,z,jet.pos.y+12);
+      const radius = state.mode === 'menu' ? 28 : clamp(82 + Math.max(0,jet.pos.y-dasar)*.43,82,250);
+      const langkah = 2*radius/surya.shadow.mapSize.x;
+      const cam = surya.shadow.camera;
+      cam.left = cam.bottom = -radius; cam.right = cam.top = radius;
+      cam.updateProjectionMatrix();
+      surya.target.position.set(Math.round(x/langkah)*langkah,dasar+4,Math.round(z/langkah)*langkah);
+      surya.position.copy(surya.target.position).addScaledVector(arahCahaya,860);
+      renderer.shadowMap.needsUpdate = true;
+      bayangTerakhir = waktuLatar;
+    }
+    renderer.render(scene,camera);
+  }
   function mulaiTerbang() {
     audio.aktifkan();
     waktuSim = 0;
@@ -2721,7 +3361,7 @@ function buatGame(THREE, renderer) {
       perbaruiLatar(dt);
     }
     perbaruiHUD();
-    renderer.render(scene, camera);
+    gambarPemandangan();
   }
 
   /* ---------- Input (dipasang sekali) ---------- */
@@ -2790,6 +3430,17 @@ function buatGame(THREE, renderer) {
   klik(el.btnPangkalan2, keLandasan);
 
   /* ---------- Siap ---------- */
+  airUniform.petaPesisir.value = buatPetaKedalaman();
+  scene.traverse(obj => {
+    if (obj.isLOD || obj.isLight) obj.layers.enable(1);
+    if (!obj.isMesh || obj === laut) return;
+    const m = obj.material;
+    if (!m.transparent || obj === langit.kubah) obj.layers.enable(1);
+    if ((m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial) && obj !== langit.awan && !m.transparent) {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    }
+  });
   parkir();
   kam.pasang = true;
   ubahUkuran();
